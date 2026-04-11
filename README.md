@@ -7,7 +7,7 @@ Ideal for measuring drawings/renderings that are orthographic or isometric.
 
 ## What is it for?
 
-Dimensioner is designed for extracting real-world measurements from relatively undistorted images — such as orthographic drawings, isometric illustrations, technical diagrams, or straight-on photographs of objects.
+Dimensioner is designed for extracting real-world measurements from relatively undistorted images technical drawings or straight-on photographs of objects.
 
 The workflow is simple:
 1. Load an image where at least one dimension is already known
@@ -15,17 +15,14 @@ The workflow is simple:
 3. Draw lines over anything else you want to measure — Dimensioner converts pixel lengths to real-world units automatically
 
 
-
 <img width="2196" height="1485" alt="image" src="https://github.com/user-attachments/assets/9526c9fc-015f-44e8-86d2-62f58f6efb81" />
-
-
 
 
 
 ## Features
 
 - Load an image and draw measurement lines over it
-- Select a line to define it's real-world length & to reposition it's endpoints
+- Select a line to define it's real-world length or to reposition it's endpoints
 - Lines display length in pixels + calibrated units once any one line has been defined
 
 - Snap lines to 45° angles (hold **Shift**)
