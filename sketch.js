@@ -7,6 +7,7 @@ const PAN_STEP = 20;
 
 let lines = [];
 let currentLineColor = '#ff0000';
+let currentLineWeight = 1.5;
 let dragging = false;
 let dragStartX = 0, dragStartY = 0;
 let selectedLine = null;
@@ -42,7 +43,18 @@ function setup() {
 
   openBtn.mousePressed(()=> fileInput.elt.click());
   fileInput.elt.addEventListener('change', handleFileSelect);
-  colorPicker.input(()=> currentLineColor = colorPicker.value);
+  colorPicker.elt.addEventListener('input', function() {
+    currentLineColor = String(this.value);
+    if (selectedLine) selectedLine.col = currentLineColor;
+  });
+
+  document.getElementById('thicknessPicker').addEventListener('input', function() {
+    let v = parseFloat(this.value);
+    if (v > 0) {
+      currentLineWeight = v;
+      if (selectedLine) selectedLine.weight = currentLineWeight;
+    }
+  });
 
   resetView.mousePressed(()=> {
     zoom = 1.0;
@@ -133,12 +145,12 @@ function draw() {
   translate(-width/2 + imgX, -height/2 + imgY);
   scale(zoom);
   if (img) image(img, 0, 0);
-  strokeWeight(1.5 / zoom);
   noFill();
   let flashOn = floor(millis() / 300) % 2 === 0;
   for (let ln of lines) {
     let drawCol = ln.col;
     if (ln === selectedLine && !flashOn) drawCol = invertColor(drawCol);
+    strokeWeight((ln.weight || 1.5) / zoom);
     stroke(drawCol);
     line(ln.x1, ln.y1, ln.x2, ln.y2);
   }
@@ -146,6 +158,7 @@ function draw() {
     let ic1 = toImgCoords(dragStartX, dragStartY);
     let ic2raw = toImgCoords(mouseX, mouseY);
     let ic2 = snapEndpoint(ic1.x, ic1.y, ic2raw.x, ic2raw.y);
+    strokeWeight(currentLineWeight / zoom);
     stroke(currentLineColor);
     line(ic1.x, ic1.y, ic2.x, ic2.y);
   }
@@ -227,7 +240,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
   noStroke();
   fill(0, 180);
   rect(cx - tw/2 - pad, cy + labelOffsetY - boxH/2, tw + pad*2, boxH, 3);
-  fill(lineCol);
+  fill(255);
   text(pxLabel, cx, cy + labelOffsetY);
 
   let inW = max(80, tw + pad*2);
@@ -271,7 +284,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     noFill();
     rect(inX-1, inY-1, inW+2, inH+2, 3);
     noStroke();
-    fill(lineCol);
+    fill(255);
     textAlign(CENTER, CENTER);
     text(customValue + ' units', inX + inW/2, inY + inH/2);
 
@@ -283,7 +296,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     noStroke();
     fill(0,180);
     rect(ux, inY, uw, inH, 3);
-    fill(lineCol);
+    fill(255);
     textAlign(CENTER, CENTER);
     text(unitLabel, ux + uw/2, inY + inH/2);
   }
@@ -302,7 +315,8 @@ function pointToSegDist(px, py, ax, ay, bx, by) {
   return dist(px, py, ax + t*dx, ay + t*dy);
 }
 
-function mousePressed() {
+function mousePressed(event) {
+  if (!event || event.target.tagName !== 'CANVAS') return;
   if (mouseButton === CENTER) {
     mmbPanning = true;
     mmbLastX = mouseX;
@@ -405,6 +419,14 @@ function mouseDragged() {
         }
       }
     }
+    // Shift held: snap the moving endpoint to the nearest 45° angle from the fixed end
+    if (keyIsDown(SHIFT)) {
+      let anchor = epDragIndex === 1
+        ? { x: epDragLine.x2, y: epDragLine.y2 }
+        : { x: epDragLine.x1, y: epDragLine.y1 };
+      let snapped = snapEndpoint(anchor.x, anchor.y, ix, iy);
+      ix = snapped.x; iy = snapped.y;
+    }
     if (epDragIndex === 1) { epDragLine.x1 = ix; epDragLine.y1 = iy; }
     else { epDragLine.x2 = ix; epDragLine.y2 = iy; }
     epDragLine.imgLen = dist(epDragLine.x1, epDragLine.y1, epDragLine.x2, epDragLine.y2);
@@ -438,7 +460,7 @@ function mouseReleased() {
     }
     let dx = ix2 - ix1, dy = iy2 - iy1;
     if (dx*dx + dy*dy > 9) {
-      lines.push(new DrawnLine(ix1, iy1, ix2, iy2, currentLineColor));
+      lines.push(new DrawnLine(ix1, iy1, ix2, iy2, currentLineColor, currentLineWeight));
       redoStack = [];
     }
     dragging = false;
@@ -562,61 +584,131 @@ function drawLabelsOnGraphics(g) {
 }
 
 function saveOutput() {
-  let W = img ? img.width  : width;
-  let H = img ? img.height : height;
+  const modal = document.getElementById('saveModal');
+  modal.classList.add('open');
 
-  // 1. Image + lines + labels
-  let g1 = createGraphics(W, H);
-  if (img) g1.image(img, 0, 0);
-  else g1.background(40);
-  g1.strokeWeight(1.5);
-  g1.noFill();
-  for (let ln of lines) {
-    g1.stroke(ln.col);
-    g1.line(ln.x1, ln.y1, ln.x2, ln.y2);
-  }
-  drawLabelsOnGraphics(g1);
-  g1.canvas.toBlob(blob => {
-    let a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'image_with_lines.png';
-    a.click();
-  });
-  g1.remove();
+  document.getElementById('saveModalCancel').onclick = () => modal.classList.remove('open');
+  modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('open'); };
 
-  // 2. Lines only + labels
-  let g2 = createGraphics(W, H);
-  g2.background(40);
-  g2.strokeWeight(1.5);
-  g2.noFill();
-  for (let ln of lines) {
-    g2.stroke(ln.col);
-    g2.line(ln.x1, ln.y1, ln.x2, ln.y2);
-  }
-  drawLabelsOnGraphics(g2);
-  g2.canvas.toBlob(blob => {
-    let a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'lines_only.png';
-    a.click();
-  });
-  g2.remove();
+  document.getElementById('saveModalConfirm').onclick = () => {
+    modal.classList.remove('open');
+    const doPngComposite = document.getElementById('ckPngComposite').checked;
+    const doPngLines    = document.getElementById('ckPngLines').checked;
+    const doSvgLabels   = document.getElementById('ckSvgLabels').checked;
+    const doSvgOnly     = document.getElementById('ckSvgOnly').checked;
+    const doCsv         = document.getElementById('ckCsv').checked;
 
-  // 3. CSV
-  let hasUnits = pixelsPerUnit > 0;
-  let header = 'index,x1,y1,x2,y2,length_px' + (hasUnits ? ',length_units' : '');
-  let rows = [header];
-  for (let i = 0; i < lines.length; i++) {
-    let ln = lines[i];
-    let row = `${i+1},${ln.x1.toFixed(2)},${ln.y1.toFixed(2)},${ln.x2.toFixed(2)},${ln.y2.toFixed(2)},${ln.imgLen.toFixed(2)}`;
-    if (hasUnits) row += `,${(ln.imgLen / pixelsPerUnit).toFixed(4)}`;
-    rows.push(row);
-  }
-  let blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  let a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'lines.csv';
-  a.click();
+    let W = img ? img.width  : width;
+    let H = img ? img.height : height;
+
+    // 1. PNG: image + lines + labels
+    if (doPngComposite) {
+      let g1 = createGraphics(W, H);
+      if (img) g1.image(img, 0, 0);
+      else g1.background(40);
+      g1.strokeWeight(1.5);
+      g1.noFill();
+      for (let ln of lines) { g1.strokeWeight(ln.weight || 1.5); g1.stroke(ln.col); g1.line(ln.x1, ln.y1, ln.x2, ln.y2); }
+      drawLabelsOnGraphics(g1);
+      g1.canvas.toBlob(blob => {
+        let a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'image_with_lines.png';
+        a.click();
+      });
+      g1.remove();
+    }
+
+    // 2. PNG: lines + labels only
+    if (doPngLines) {
+      let g2 = createGraphics(W, H);
+      g2.background(40);
+      g2.strokeWeight(1.5);
+      g2.noFill();
+      for (let ln of lines) { g2.strokeWeight(ln.weight || 1.5); g2.stroke(ln.col); g2.line(ln.x1, ln.y1, ln.x2, ln.y2); }
+      drawLabelsOnGraphics(g2);
+      g2.canvas.toBlob(blob => {
+        let a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'lines_only.png';
+        a.click();
+      });
+      g2.remove();
+    }
+
+    // 3. SVG: lines with labels
+    if (doSvgLabels) {
+      let svgParts = [];
+      svgParts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+      for (let ln of lines) {
+        svgParts.push(`  <line x1="${ln.x1.toFixed(2)}" y1="${ln.y1.toFixed(2)}" x2="${ln.x2.toFixed(2)}" y2="${ln.y2.toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+      }
+      let svgPad = 4, svgTh = 14, svgBoxH = svgTh + svgPad * 2;
+      for (let ln of lines) {
+        let cx2 = (ln.x1 + ln.x2) / 2;
+        let cy2 = (ln.y1 + ln.y2) / 2;
+        let pxL = nf(ln.imgLen, 1, 1) + ' px';
+        let hasU = pixelsPerUnit > 0 && ln !== calibrationLine;
+        let unitL = hasU ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
+        let isC = ln === calibrationLine && ln.customValue.length > 0;
+        let calibL = isC ? (ln.customValue + ' units') : null;
+        let hasSec = hasU || isC;
+        let oY = hasSec ? -(svgBoxH + 4) / 2 : 0;
+        let tw2 = pxL.length * 7;
+        svgParts.push(`  <rect x="${(cx2 - tw2/2 - svgPad).toFixed(2)}" y="${(cy2 + oY - svgBoxH/2).toFixed(2)}" width="${(tw2 + svgPad*2).toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+        svgParts.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + oY).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${pxL}</text>`);
+        if (unitL) {
+          let uw2 = max(tw2 + svgPad*2, unitL.length * 7 + svgPad*2);
+          svgParts.push(`  <rect x="${(cx2 - uw2/2).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4).toFixed(2)}" width="${uw2.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+          svgParts.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4 + svgBoxH/2).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${unitL}</text>`);
+        } else if (calibL) {
+          let cw2 = max(tw2 + svgPad*2, calibL.length * 7 + svgPad*2);
+          svgParts.push(`  <rect x="${(cx2 - cw2/2).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4).toFixed(2)}" width="${cw2.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+          svgParts.push(`  <rect x="${(cx2 - cw2/2 - 1).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 3).toFixed(2)}" width="${(cw2 + 2).toFixed(2)}" height="${(svgBoxH + 2)}" rx="3" fill="none" stroke="rgb(255,180,0)" stroke-width="2" />`);
+          svgParts.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4 + svgBoxH/2).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${calibL}</text>`);
+        }
+      }
+      svgParts.push('</svg>');
+      let svgBlob = new Blob([svgParts.join('\n')], { type: 'image/svg+xml' });
+      let svgA = document.createElement('a');
+      svgA.href = URL.createObjectURL(svgBlob);
+      svgA.download = 'lines_with_labels.svg';
+      svgA.click();
+    }
+
+    // 4. SVG: lines only
+    if (doSvgOnly) {
+      let svgPlain = [];
+      svgPlain.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+      for (let ln of lines) {
+        svgPlain.push(`  <line x1="${ln.x1.toFixed(2)}" y1="${ln.y1.toFixed(2)}" x2="${ln.x2.toFixed(2)}" y2="${ln.y2.toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+      }
+      svgPlain.push('</svg>');
+      let svgPlainBlob = new Blob([svgPlain.join('\n')], { type: 'image/svg+xml' });
+      let svgPlainA = document.createElement('a');
+      svgPlainA.href = URL.createObjectURL(svgPlainBlob);
+      svgPlainA.download = 'lines_only.svg';
+      svgPlainA.click();
+    }
+
+    // 5. CSV
+    if (doCsv) {
+      let hasUnits = pixelsPerUnit > 0;
+      let header = 'index,x1,y1,x2,y2,length_px' + (hasUnits ? ',length_units' : '');
+      let rows = [header];
+      for (let i = 0; i < lines.length; i++) {
+        let ln = lines[i];
+        let row = `${i+1},${ln.x1.toFixed(2)},${ln.y1.toFixed(2)},${ln.x2.toFixed(2)},${ln.y2.toFixed(2)},${ln.imgLen.toFixed(2)}`;
+        if (hasUnits) row += `,${(ln.imgLen / pixelsPerUnit).toFixed(4)}`;
+        rows.push(row);
+      }
+      let blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+      let a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'lines.csv';
+      a.click();
+    }
+  };
 }
 
 function doUndo() {
@@ -659,18 +751,20 @@ function confirmInput() {
 }
 
 class DrawnLine {
-  constructor(x1, y1, x2, y2, col) {
+  constructor(x1, y1, x2, y2, col, weight) {
     this.x1 = x1;
     this.y1 = y1;
     this.x2 = x2;
     this.y2 = y2;
     this.imgLen = dist(x1, y1, x2, y2);
     this.col = col;
+    this.weight = weight || 1.5;
     this.customValue = "";
   }
 }
 
-function mouseClicked() {
+function mouseClicked(event) {
+  if (!event || event.target.tagName !== 'CANVAS') return;
   if (justSelected) { justSelected = false; return; }
   if (inputFocused) {
     if (!(mouseX >= _inX && mouseX <= _inX + _inW &&

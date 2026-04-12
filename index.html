@@ -22,6 +22,8 @@
     }
     #sidebar {
       width: 260px;
+      min-width: 260px;
+      flex-shrink: 0;
       background: #2f2f2f;
       padding: 12px;
       box-sizing: border-box;
@@ -53,11 +55,50 @@
     }
     .hint {
       font-size: 12px;
-      color: #aaa;
+      color: #fff;
       margin-top: 6px;
     }
     #fileInput {
       display: none;
+    }
+    #saveModal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    #saveModal.open {
+      display: flex;
+    }
+    #saveModalBox {
+      background: #2f2f2f;
+      border: 1px solid #555;
+      border-radius: 8px;
+      padding: 20px 24px;
+      min-width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      color: #eee;
+    }
+    #saveModalBox h3 {
+      margin: 0 0 4px 0;
+      font-size: 15px;
+    }
+    #saveModalBox label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #saveModalBtns {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
     }
   </style>
 </head>
@@ -82,13 +123,21 @@
       </div>
 
       <div>
+        <label>Line Thickness</label>
+        <div class="small" style="margin-top:4px">
+          <input id="thicknessPicker" type="number" min="0.5" max="50" step="0.5" value="1.5" style="width:70px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px;" />
+          <span style="font-size:13px; color:#aaa;">px</span>
+        </div>
+      </div>
+
+      <div>
         <div class="small">
           <div style="flex:1">
             <label>Zoom</label>
             <div id="zoomDisplay">1.00x</div>
           </div>
           <div style="width:90px">
-            <button id="resetView" class="btn">Reset Zoom</button>
+            <button id="resetView" class="btn">Reset View</button>
           </div>
         </div>
         <div class="small" style="margin-top:6px">
@@ -101,36 +150,58 @@
         <button id="undoBtn" class="btn">Undo</button>
         <button id="redoBtn" class="btn">Redo</button>
       </div>
+<br><br>
+      <button id="saveBtn" class="btn" style="background:#2a6; color:#fff">Save Output</button>
 
       <div>
-        <label>Instructions</label>
+        <br><br>
+        <label>Instructions:</label>
         <div class="hint">
+          <br><br>
           Load an image, drawing, etc. to be measured.<br><br>
-          Draw lines: click and drag.<br>
-          Hold Shift to snap lines to 45&deg; angles.<br>
-          Hold CTRL to snap lines together.<br>
-          Select line: click near a line.<br>
-          Drag endpoints to adjust selected line.<br>
-          Enter calibration: select line then enter value.<br>
-          Scroll to zoom, arrows to pan. 
+          Draw lines by 'click and drag'.<br><br>
+          Hold Shift to <b>snap</b> lines to 45&deg; angles.<br><br>
+          Click on a line to <b>select</b> it<br><br>
+          To move a line, <b>select</b> it then move its endpoints.<br><br>
+          Hold CTRL to <b>link</b> one line to another.<br><br>
+          Set line length by selecting a line, then enter a value.<br><br>
+          All other lines will automatically update their lengths.<br><br>
+          <b>Scroll</b> to zoom. <br><br>
+          Middle mouse click or arrow keys to pan. <br><br><br>
+          'Save' can output two .pngs, .svgs, and .csv.<br><br>
         </div>
       </div>
 
       <div style="margin-top:auto; font-size:12px; color:#999">
-        Dimensioner p5.js port
+        Dimensioner by Chris Bovee <br>
+        JS + HTML
       </div>
-
-      <button id="saveBtn" class="btn" style="background:#2a6; color:#fff">Save Output</button>
 
     </div>
 
     <!-- Canvas container -->
     <div id="canvas-holder"></div>
 
+    <!-- Save modal -->
+    <div id="saveModal">
+      <div id="saveModalBox">
+        <h3>Save Output</h3>
+        <label><input type="checkbox" id="ckPngComposite" checked> PNG - image + lines + labels</label>
+        <label><input type="checkbox" id="ckPngLines" checked> PNG - lines + labels only</label>
+        <label><input type="checkbox" id="ckSvgLabels" checked> SVG - lines with labels</label>
+        <label><input type="checkbox" id="ckSvgOnly" checked> SVG - lines only</label>
+        <label><input type="checkbox" id="ckCsv" checked> CSV - coordinates &amp; lengths</label>
+        <div id="saveModalBtns">
+          <button class="btn" style="background:#2a6;color:#fff;flex:1" id="saveModalConfirm">Download</button>
+          <button class="btn" style="flex:1" id="saveModalCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Your p5.js sketch -->
-  <script src="sketch.js"></script>
+  <script src="sketch.js?v=2"></script>
 
 </body>
 </html>
