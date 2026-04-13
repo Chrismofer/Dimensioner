@@ -36,7 +36,8 @@ let selectedAngleLabel = null;
 let angleLabelDragging = false;
 
 let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn;
-let redoStack = [];
+let redoStack = []; // history of actions (tagged {type,item})
+let undoStack = []; // undone actions available to redo
 
 function setup() {
   const holder = document.getElementById('canvas-holder');
@@ -73,7 +74,7 @@ function setup() {
   resetLines = select('#resetLines');
   resetImage = select('#resetImage');
   resetLines.mousePressed(()=> {
-    lines = []; redoStack = [];
+    lines = []; redoStack = []; undoStack = [];
     calibrationLine = null; pixelsPerUnit = 0;
     selectedLine = null; inputFocused = false;
     angleLabels = []; selectedAngleLabel = null; angleLabelDragging = false;
@@ -425,6 +426,8 @@ function confirmAngle(mx, my) {
   let lpos = toImgCoords(mx, my);
   let r = dist(inter.x, inter.y, lpos.x, lpos.y);
   angleLabels.push({ ix: inter.x, iy: inter.y, angleDeg: angleDeg, lx: lpos.x, ly: lpos.y, r: r, line1: angleLines[0], line2: angleLines[1], col: angleLines[0].col, weight: currentLineWeight });
+  redoStack.push({ type: 'arc', item: angleLabels[angleLabels.length - 1] });
+  undoStack = [];
   angleLines = [];
   measureAngleMode = false;
   document.getElementById('measureStatus').style.display = 'none';
@@ -731,8 +734,10 @@ function mouseReleased() {
     }
     let dx = ix2 - ix1, dy = iy2 - iy1;
     if (dx*dx + dy*dy > 9) {
-      lines.push(new DrawnLine(ix1, iy1, ix2, iy2, currentLineColor, currentLineWeight));
-      redoStack = [];
+      let newLine = new DrawnLine(ix1, iy1, ix2, iy2, currentLineColor, currentLineWeight);
+      lines.push(newLine);
+      redoStack.push({ type: 'line', item: newLine });
+      undoStack = [];
     }
     dragging = false;
   }
@@ -772,6 +777,15 @@ function keyPressed() {
     }
   }
 
+  if (keyCode === DELETE && selectedAngleLabel) {
+    let deleted = selectedAngleLabel;
+    angleLabels = angleLabels.filter(al => al !== deleted);
+    redoStack = redoStack.filter(e => e.item !== deleted);
+    undoStack = undoStack.filter(e => e.item !== deleted);
+    selectedAngleLabel = null; angleLabelDragging = false;
+    return;
+  }
+
   if (keyCode === DELETE && selectedLine) {
     if (selectedLine === calibrationLine) {
       calibrationLine = null; pixelsPerUnit = 0;
@@ -779,6 +793,8 @@ function keyPressed() {
     let deleted = selectedLine;
     lines = lines.filter(l => l !== deleted);
     angleLabels = angleLabels.filter(al => al.line1 !== deleted && al.line2 !== deleted);
+    redoStack = redoStack.filter(e => e.item !== deleted && e.item.line1 !== deleted && e.item.line2 !== deleted);
+    undoStack = undoStack.filter(e => e.item !== deleted && e.item.line1 !== deleted && e.item.line2 !== deleted);
     selectedLine = null; inputFocused = false;
     return;
   }
@@ -1043,18 +1059,39 @@ function saveOutput() {
 }
 
 function doUndo() {
-  if (lines.length > 0) {
-    let removed = lines.pop();
-    redoStack.push(removed);
-    if (removed === calibrationLine) { calibrationLine = null; pixelsPerUnit = 0; }
-    if (removed === selectedLine) { selectedLine = null; inputFocused = false; }
-    angleLabels = angleLabels.filter(al => al.line1 !== removed && al.line2 !== removed);
+  // Walk back through redoStack (which is our history) from the end
+  for (let i = redoStack.length - 1; i >= 0; i--) {
+    let entry = redoStack[i];
+    if (entry.type === 'arc' && angleLabels.includes(entry.item)) {
+      angleLabels = angleLabels.filter(al => al !== entry.item);
+      if (selectedAngleLabel === entry.item) { selectedAngleLabel = null; angleLabelDragging = false; }
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
+    if (entry.type === 'line' && lines.includes(entry.item)) {
+      let removed = entry.item;
+      lines = lines.filter(l => l !== removed);
+      if (removed === calibrationLine) { calibrationLine = null; pixelsPerUnit = 0; }
+      if (removed === selectedLine) { selectedLine = null; inputFocused = false; }
+      angleLabels = angleLabels.filter(al => al.line1 !== removed && al.line2 !== removed);
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
   }
 }
 
 function doRedo() {
-  if (redoStack.length > 0) {
-    lines.push(redoStack.pop());
+  if (undoStack.length > 0) {
+    let entry = undoStack.pop();
+    if (entry.type === 'line') {
+      lines.push(entry.item);
+      redoStack.push(entry);
+    } else if (entry.type === 'arc') {
+      angleLabels.push(entry.item);
+      redoStack.push(entry);
+    }
   }
 }
 
