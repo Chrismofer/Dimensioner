@@ -28,7 +28,14 @@ let _ckX=0,_ckY=0,_ckS=0;
 let calibrationLine = null;
 let pixelsPerUnit = 0;
 
-let fileInput, openBtn, colorPicker, zoomDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn;
+let measureAngleMode = false;
+let angleLines = [];
+let angleLabels = [];
+let _angleCkX = 0, _angleCkY = 0, _angleCkS = 0;
+let selectedAngleLabel = null;
+let angleLabelDragging = false;
+
+let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn;
 let redoStack = [];
 
 function setup() {
@@ -39,6 +46,7 @@ function setup() {
   openBtn = select('#openBtn');
   colorPicker = select('#colorPicker');
   zoomDisplay = select('#zoomDisplay');
+  posDisplay = select('#posDisplay');
   resetView = select('#resetView');
 
   openBtn.mousePressed(()=> fileInput.elt.click());
@@ -68,13 +76,10 @@ function setup() {
     lines = []; redoStack = [];
     calibrationLine = null; pixelsPerUnit = 0;
     selectedLine = null; inputFocused = false;
+    angleLabels = []; selectedAngleLabel = null; angleLabelDragging = false;
   });
   resetImage.mousePressed(()=> {
     img = null;
-    lines = []; redoStack = [];
-    calibrationLine = null; pixelsPerUnit = 0;
-    selectedLine = null; inputFocused = false;
-    zoom = 1.0; viewAngle = 0; imgX = 0; imgY = 0;
   });
 
   rotateLeftBtn = select('#rotateLeft');
@@ -89,6 +94,35 @@ function setup() {
 
   saveBtn = select('#saveBtn');
   saveBtn.mousePressed(saveOutput);
+
+  measureAngleBtn = select('#measureAngleBtn');
+  measureAngleBtn.mousePressed(() => {
+    const status = document.getElementById('measureStatus');
+    if (measureAngleMode || angleLines.length > 0) {
+      // Toggle off / cancel
+      measureAngleMode = false;
+      angleLines = [];
+      status.style.display = 'none';
+      return;
+    }
+    status.style.display = 'block';
+    if (lines.length < 2) {
+      status.textContent = 'Not enough lines';
+    } else {
+      measureAngleMode = true;
+      angleLines = [];
+      if (selectedLine) {
+        angleLines.push(selectedLine);
+        selectedLine = null;
+        inputFocused = false;
+        status.textContent = 'Select second line';
+      } else {
+        selectedLine = null;
+        inputFocused = false;
+        status.textContent = 'Select first line';
+      }
+    }
+  });
 
   textFont('Arial');
 }
@@ -108,7 +142,11 @@ function handleFileSelect(evt) {
 }
 
 function centerImage() {
-  if (!img) return;
+  if (!img) {
+    imgX = 0;
+    imgY = 0;
+    return;
+  }
   imgX = (width - img.width * zoom) / 2;
   imgY = (height - img.height * zoom) / 2;
 }
@@ -150,6 +188,7 @@ function draw() {
   for (let ln of lines) {
     let drawCol = ln.col;
     if (ln === selectedLine && !flashOn) drawCol = invertColor(drawCol);
+    if (angleLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     strokeWeight((ln.weight || 1.5) / zoom);
     stroke(drawCol);
     line(ln.x1, ln.y1, ln.x2, ln.y2);
@@ -164,7 +203,7 @@ function draw() {
   }
   pop();
 
-  if (selectedLine) {
+  if (selectedLine && !measureAngleMode) {
     let sp1 = toScreenCoords(selectedLine.x1, selectedLine.y1);
     let sp2 = toScreenCoords(selectedLine.x2, selectedLine.y2);
     // Black outline ring
@@ -181,7 +220,7 @@ function draw() {
   }
 
   // CTRL held: show snap target circles on all line endpoints
-  if (keyIsDown(CONTROL)) {
+  if (keyIsDown(CONTROL) && !measureAngleMode) {
     for (let ln of lines) {
       for (let pt of [{x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2}]) {
         let sp = toScreenCoords(pt.x, pt.y);
@@ -217,6 +256,43 @@ function draw() {
   }
 
   zoomDisplay.html(nf(zoom,1,2) + 'x');
+  posDisplay.html('X:&nbsp;' + floor(imgX) + '<br>Y:&nbsp;' + floor(imgY));
+
+  // Draw confirmed angle labels
+  for (let al of angleLabels) {
+    let inter = lineIntersection(al.line1, al.line2);
+    if (!inter) continue;
+    let sp = toScreenCoords(inter.x, inter.y);
+    let slabel = toScreenCoords(al.lx, al.ly);
+    let r = dist(sp.x, sp.y, slabel.x, slabel.y);
+    let arcA = getSectorArcAngles(sp, al.line1, al.line2, slabel.x, slabel.y);
+    let angleDeg = degrees(arcA.stop - arcA.start);
+    let isSelected = al === selectedAngleLabel;
+    let c = color(al.col || '#ffffff');
+    let arcCol = (isSelected && !flashOn) ? color(255 - red(c), 255 - green(c), 255 - blue(c), 160) : color(red(c), green(c), blue(c), 160);
+    noFill();
+    strokeWeight(isSelected ? al.weight * 1.5 : al.weight);
+    stroke(arcCol);
+    arc(sp.x, sp.y, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
+    drawAngleLabel(slabel.x, slabel.y, angleDeg, false);
+  }
+
+  // Draw live angle preview when two lines are selected
+  if (angleLines.length === 2) {
+    let inter = lineIntersection(angleLines[0], angleLines[1]);
+    if (inter) {
+      let sp = toScreenCoords(inter.x, inter.y);
+      let r = dist(mouseX, mouseY, sp.x, sp.y);
+      let arcA = getSectorArcAngles(sp, angleLines[0], angleLines[1], mouseX, mouseY);
+      let angleDeg = degrees(arcA.stop - arcA.start);
+      noFill();
+      strokeWeight(currentLineWeight);
+      let lc = color(currentLineColor);
+      stroke(red(lc), green(lc), blue(lc), 160);
+      arc(sp.x, sp.y, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
+      drawAngleLabel(mouseX, mouseY, angleDeg, false);
+    }
+  }
 }
 
 function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, isCalib) {
@@ -302,6 +378,122 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
   }
 }
 
+function lineIntersection(ln1, ln2) {
+  let dx1 = ln1.x2 - ln1.x1, dy1 = ln1.y2 - ln1.y1;
+  let dx2 = ln2.x2 - ln2.x1, dy2 = ln2.y2 - ln2.y1;
+  let denom = dx1 * dy2 - dy1 * dx2;
+  if (abs(denom) < 1e-10) return null; // parallel
+  let t = ((ln2.x1 - ln1.x1) * dy2 - (ln2.y1 - ln1.y1) * dx2) / denom;
+  return { x: ln1.x1 + t * dx1, y: ln1.y1 + t * dy1 };
+}
+
+function angleBetweenLines(ln1, ln2) {
+  let dx1 = ln1.x2 - ln1.x1, dy1 = ln1.y2 - ln1.y1;
+  let dx2 = ln2.x2 - ln2.x1, dy2 = ln2.y2 - ln2.y1;
+  let dot = dx1 * dx2 + dy1 * dy2;
+  let mag1 = sqrt(dx1*dx1 + dy1*dy1);
+  let mag2 = sqrt(dx2*dx2 + dy2*dy2);
+  if (mag1 === 0 || mag2 === 0) return 0;
+  let cosA = constrain(abs(dot) / (mag1 * mag2), 0, 1);
+  return degrees(acos(cosA));
+}
+
+function drawAngleLabel(sx, sy, angleDeg, inverted) {
+  let label = nf(angleDeg, 1, 1) + '\u00b0';
+  textSize(12);
+  textAlign(CENTER, CENTER);
+  let tw = textWidth(label);
+  let pad = 4;
+  let th = 14;
+  let boxH = th + pad * 2;
+  let boxW = tw + pad * 2;
+
+  noStroke();
+  fill(inverted ? color(255, 255, 255, 180) : color(0, 0, 0, 180));
+  rect(sx - boxW / 2, sy - boxH / 2, boxW, boxH, 3);
+  fill(inverted ? 0 : 255);
+  text(label, sx, sy);
+}
+
+function confirmAngle(mx, my) {
+  if (angleLines.length < 2) return;
+  let inter = lineIntersection(angleLines[0], angleLines[1]);
+  if (!inter) return;
+  let sp = toScreenCoords(inter.x, inter.y);
+  let arcA = getSectorArcAngles(sp, angleLines[0], angleLines[1], mx, my);
+  let angleDeg = degrees(arcA.stop - arcA.start);
+  let lpos = toImgCoords(mx, my);
+  let r = dist(inter.x, inter.y, lpos.x, lpos.y);
+  angleLabels.push({ ix: inter.x, iy: inter.y, angleDeg: angleDeg, lx: lpos.x, ly: lpos.y, r: r, line1: angleLines[0], line2: angleLines[1], col: angleLines[0].col, weight: currentLineWeight });
+  angleLines = [];
+  measureAngleMode = false;
+  document.getElementById('measureStatus').style.display = 'none';
+}
+
+function getSectorArcAngles(inter_sp, ln1, ln2, mx, my) {
+  let sp1a = toScreenCoords(ln1.x1, ln1.y1);
+  let sp1b = toScreenCoords(ln1.x2, ln1.y2);
+  let sp2a = toScreenCoords(ln2.x1, ln2.y1);
+  let sp2b = toScreenCoords(ln2.x2, ln2.y2);
+  let ang1 = atan2(sp1b.y - sp1a.y, sp1b.x - sp1a.x);
+  let ang2 = atan2(sp2b.y - sp2a.y, sp2b.x - sp2a.x);
+  function norm(a) { return ((a % TWO_PI) + TWO_PI) % TWO_PI; }
+  let rays = [norm(ang1), norm(ang1 + PI), norm(ang2), norm(ang2 + PI)];
+  rays.sort((a, b) => a - b);
+  let mouseA = norm(atan2(my - inter_sp.y, mx - inter_sp.x));
+  let idx = 3;
+  for (let i = 0; i < 3; i++) {
+    if (mouseA >= rays[i] && mouseA < rays[i + 1]) { idx = i; break; }
+  }
+  let start = rays[idx];
+  let stop = idx === 3 ? rays[0] + TWO_PI : rays[idx + 1];
+  return { start, stop };
+}
+
+function getSectorArcAnglesImg(inter_img, ln1, ln2, mx, my) {
+  let ang1 = atan2(ln1.y2 - ln1.y1, ln1.x2 - ln1.x1);
+  let ang2 = atan2(ln2.y2 - ln2.y1, ln2.x2 - ln2.x1);
+  function norm(a) { return ((a % TWO_PI) + TWO_PI) % TWO_PI; }
+  let rays = [norm(ang1), norm(ang1 + PI), norm(ang2), norm(ang2 + PI)];
+  rays.sort((a, b) => a - b);
+  let mouseA = norm(atan2(my - inter_img.y, mx - inter_img.x));
+  let idx = 3;
+  for (let i = 0; i < 3; i++) {
+    if (mouseA >= rays[i] && mouseA < rays[i + 1]) { idx = i; break; }
+  }
+  let start = rays[idx];
+  let stop = idx === 3 ? rays[0] + TWO_PI : rays[idx + 1];
+  return { start, stop };
+}
+
+function drawAngleLabelsOnGraphics(g) {
+  g.textFont('Arial');
+  g.textSize(12);
+  g.textAlign(CENTER, CENTER);
+  let pad = 4, th = 14, boxH = th + pad * 2;
+  for (let al of angleLabels) {
+    let inter = lineIntersection(al.line1, al.line2);
+    if (!inter) continue;
+    let r = dist(inter.x, inter.y, al.lx, al.ly);
+    let arcA = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
+    let angleDeg = degrees(arcA.stop - arcA.start);
+    let c = color(al.col || '#ffffff');
+    g.noFill();
+    g.stroke(red(c), green(c), blue(c), 160);
+    g.strokeWeight(al.weight || 1.5);
+    g.arc(inter.x, inter.y, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
+    // label box
+    let label = nf(angleDeg, 1, 1) + '\u00b0';
+    let tw = g.textWidth(label);
+    let boxW = tw + pad * 2;
+    g.noStroke();
+    g.fill(0, 180);
+    g.rect(al.lx - boxW / 2, al.ly - boxH / 2, boxW, boxH, 3);
+    g.fill(255);
+    g.text(label, al.lx, al.ly);
+  }
+}
+
 function invertColor(hex) {
   let c = color(hex);
   return color(255 - red(c), 255 - green(c), 255 - blue(c));
@@ -323,6 +515,77 @@ function mousePressed(event) {
     mmbLastY = mouseY;
     return;
   }
+
+  if (measureAngleMode) {
+    // Check if checkbox clicked
+    if (angleLines.length >= 2 &&
+        mouseX >= _angleCkX && mouseX <= _angleCkX + _angleCkS &&
+        mouseY >= _angleCkY && mouseY <= _angleCkY + _angleCkS) {
+      confirmAngle(mouseX, mouseY);
+      return;
+    }
+    let hitThresh = 8;
+    let hitLine = false;
+    for (let ln of lines) {
+      let sp1 = toScreenCoords(ln.x1, ln.y1);
+      let sp2 = toScreenCoords(ln.x2, ln.y2);
+      if (pointToSegDist(mouseX, mouseY, sp1.x, sp1.y, sp2.x, sp2.y) < hitThresh) {
+        if (angleLines.includes(ln)) {
+          angleLines = angleLines.filter(l => l !== ln);
+        } else if (angleLines.length < 2) {
+          angleLines.push(ln);
+        }
+        const status = document.getElementById('measureStatus');
+        if (angleLines.length === 0) {
+          status.textContent = 'Select first line';
+        } else if (angleLines.length === 1) {
+          status.textContent = 'Select second line';
+        } else if (angleLines.length >= 2) {
+          status.textContent = 'Lines selected';
+        }
+        hitLine = true;
+        break;
+      }
+    }
+    // No line hit and two lines already selected: place the label
+    if (!hitLine && angleLines.length >= 2) {
+      confirmAngle(mouseX, mouseY);
+    }
+    return;
+  }
+
+  // Check for angle label / arc hit in normal mode
+  if (!measureAngleMode) {
+    let arcHitThresh = 6;
+    for (let al of angleLabels) {
+      let inter = lineIntersection(al.line1, al.line2);
+      if (!inter) continue;
+      let sp = toScreenCoords(inter.x, inter.y);
+      let slabel = toScreenCoords(al.lx, al.ly);
+      let r = dist(sp.x, sp.y, slabel.x, slabel.y);
+      // Hit label box
+      textSize(12);
+      let label = nf(0, 1, 1) + '\u00b0';
+      let pad = 4, th = 14, boxH = th + pad * 2;
+      let boxW = textWidth(nf(90,1,1)+'\u00b0') + pad * 2 + 20; // generous width
+      let hitBox = mouseX >= slabel.x - boxW/2 && mouseX <= slabel.x + boxW/2 &&
+                   mouseY >= slabel.y - boxH/2 && mouseY <= slabel.y + boxH/2;
+      // Hit arc stroke
+      let arcA = getSectorArcAngles(sp, al.line1, al.line2, slabel.x, slabel.y);
+      let mouseR = dist(mouseX, mouseY, sp.x, sp.y);
+      let mouseAng = ((atan2(mouseY - sp.y, mouseX - sp.x) % TWO_PI) + TWO_PI) % TWO_PI;
+      let inArcAngle = arcA.stop > TWO_PI
+        ? mouseAng >= arcA.start || mouseAng <= arcA.stop - TWO_PI
+        : mouseAng >= arcA.start && mouseAng <= arcA.stop;
+      let hitArc = abs(mouseR - r) < arcHitThresh && inArcAngle;
+      if (hitBox || hitArc) {
+        selectedAngleLabel = al;
+        angleLabelDragging = true;
+        return;
+      }
+    }
+  }
+
   if (selectedLine) {
     if (mouseX >= _ckX && mouseX <= _ckX + _ckS &&
         mouseY >= _ckY && mouseY <= _ckY + _ckS) {
@@ -379,6 +642,7 @@ function mousePressed(event) {
   }
 
   selectedLine = null;
+  selectedAngleLabel = null;
   inputFocused = false;
   dragging = true;
   dragStartX = mouseX;
@@ -399,6 +663,12 @@ function mousePressed(event) {
 }
 
 function mouseDragged() {
+  if (angleLabelDragging && selectedAngleLabel) {
+    let ic = toImgCoords(mouseX, mouseY);
+    selectedAngleLabel.lx = ic.x;
+    selectedAngleLabel.ly = ic.y;
+    return;
+  }
   if (mmbPanning) {
     imgX += mouseX - mmbLastX;
     imgY += mouseY - mmbLastY;
@@ -438,6 +708,7 @@ function mouseDragged() {
 }
 
 function mouseReleased() {
+  angleLabelDragging = false;
   if (mmbPanning) { mmbPanning = false; return; }
   if (epDragLine) { epDragLine = null; return; }
   if (dragging) {
@@ -479,6 +750,11 @@ function mouseWheel(event) {
 }
 
 function keyPressed() {
+  if (angleLines.length >= 2 && keyCode === ENTER) {
+    confirmAngle(mouseX, mouseY);
+    return;
+  }
+
   if (inputFocused) {
     if (keyCode === ENTER) { confirmInput(); return; }
     else if (keyCode === BACKSPACE) {
@@ -487,11 +763,22 @@ function keyPressed() {
     } else if (key === ESCAPE) { inputFocused = false; return; }
   }
 
+  if (key === 'Escape' || keyCode === ESCAPE) {
+    if (measureAngleMode || angleLines.length > 0) {
+      measureAngleMode = false;
+      angleLines = [];
+      document.getElementById('measureStatus').style.display = 'none';
+      return;
+    }
+  }
+
   if (keyCode === DELETE && selectedLine) {
     if (selectedLine === calibrationLine) {
       calibrationLine = null; pixelsPerUnit = 0;
     }
-    lines = lines.filter(l => l !== selectedLine);
+    let deleted = selectedLine;
+    lines = lines.filter(l => l !== deleted);
+    angleLabels = angleLabels.filter(al => al.line1 !== deleted && al.line2 !== deleted);
     selectedLine = null; inputFocused = false;
     return;
   }
@@ -556,7 +843,7 @@ function drawLabelsOnGraphics(g) {
     g.noStroke();
     g.fill(0, 180);
     g.rect(cx - tw / 2 - pad, cy + offsetY - boxH / 2, tw + pad * 2, boxH, 3);
-    g.fill(ln.col);
+    g.fill(255);
     g.text(pxLabel, cx, cy + offsetY);
 
     // second label
@@ -565,7 +852,7 @@ function drawLabelsOnGraphics(g) {
       g.noStroke();
       g.fill(0, 180);
       g.rect(cx - uw / 2, cy + boxH / 2 + 4, uw, boxH, 3);
-      g.fill(ln.col);
+      g.fill(255);
       g.text(unitLabel, cx, cy + boxH / 2 + 4 + boxH / 2);
     } else if (calibLabel) {
       let cw = max(tw + pad * 2, g.textWidth(calibLabel) + pad * 2);
@@ -577,7 +864,7 @@ function drawLabelsOnGraphics(g) {
       g.noFill();
       g.rect(cx - cw / 2 - 1, cy + boxH / 2 + 3, cw + 2, boxH + 2, 3);
       g.noStroke();
-      g.fill(ln.col);
+      g.fill(255);
       g.text(calibLabel, cx, cy + boxH / 2 + 4 + boxH / 2);
     }
   }
@@ -610,10 +897,11 @@ function saveOutput() {
       g1.noFill();
       for (let ln of lines) { g1.strokeWeight(ln.weight || 1.5); g1.stroke(ln.col); g1.line(ln.x1, ln.y1, ln.x2, ln.y2); }
       drawLabelsOnGraphics(g1);
+      drawAngleLabelsOnGraphics(g1);
       g1.canvas.toBlob(blob => {
         let a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'image_with_lines.png';
+        a.download = 'image_with_lines_and_labels.png';
         a.click();
       });
       g1.remove();
@@ -627,10 +915,11 @@ function saveOutput() {
       g2.noFill();
       for (let ln of lines) { g2.strokeWeight(ln.weight || 1.5); g2.stroke(ln.col); g2.line(ln.x1, ln.y1, ln.x2, ln.y2); }
       drawLabelsOnGraphics(g2);
+      drawAngleLabelsOnGraphics(g2);
       g2.canvas.toBlob(blob => {
         let a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'lines_only.png';
+        a.download = 'lines_and_labels.png';
         a.click();
       });
       g2.remove();
@@ -669,6 +958,33 @@ function saveOutput() {
         }
       }
       svgParts.push('</svg>');
+      // --- angle arcs and labels ---
+      // re-open by inserting before the closing tag
+      svgParts.pop(); // remove </svg>
+      let svgPad2 = 4, svgTh2 = 14, svgBoxH2 = svgTh2 + svgPad2 * 2;
+      for (let al of angleLabels) {
+        let inter = lineIntersection(al.line1, al.line2);
+        if (!inter) continue;
+        let r2 = dist(inter.x, inter.y, al.lx, al.ly);
+        let arcA2 = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
+        let span = arcA2.stop - arcA2.start;
+        let angleDeg2 = degrees(span);
+        let sx = inter.x + r2 * Math.cos(arcA2.start);
+        let sy = inter.y + r2 * Math.sin(arcA2.start);
+        let ex = inter.x + r2 * Math.cos(arcA2.stop);
+        let ey = inter.y + r2 * Math.sin(arcA2.stop);
+        let largeArc = span > Math.PI ? 1 : 0;
+        let c2 = color(al.col || '#ffffff');
+        let colStr = `rgb(${floor(red(c2))},${floor(green(c2))},${floor(blue(c2))})`;
+        svgParts.push(`  <path d="M ${sx.toFixed(2)},${sy.toFixed(2)} A ${r2.toFixed(2)},${r2.toFixed(2)} 0 ${largeArc},1 ${ex.toFixed(2)},${ey.toFixed(2)}" fill="none" stroke="${colStr}" stroke-opacity="0.63" stroke-width="${al.weight || 1.5}" />`);
+        // label box
+        let alabel = nf(angleDeg2, 1, 1) + '\u00b0';
+        let ltw = alabel.length * 7;
+        let lboxW = ltw + svgPad2 * 2;
+        svgParts.push(`  <rect x="${(al.lx - lboxW/2).toFixed(2)}" y="${(al.ly - svgBoxH2/2).toFixed(2)}" width="${lboxW.toFixed(2)}" height="${svgBoxH2}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+        svgParts.push(`  <text x="${al.lx.toFixed(2)}" y="${al.ly.toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${alabel}</text>`);
+      }
+      svgParts.push('</svg>');
       let svgBlob = new Blob([svgParts.join('\n')], { type: 'image/svg+xml' });
       let svgA = document.createElement('a');
       svgA.href = URL.createObjectURL(svgBlob);
@@ -682,6 +998,21 @@ function saveOutput() {
       svgPlain.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
       for (let ln of lines) {
         svgPlain.push(`  <line x1="${ln.x1.toFixed(2)}" y1="${ln.y1.toFixed(2)}" x2="${ln.x2.toFixed(2)}" y2="${ln.y2.toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+      }
+      for (let al of angleLabels) {
+        let inter = lineIntersection(al.line1, al.line2);
+        if (!inter) continue;
+        let r2 = dist(inter.x, inter.y, al.lx, al.ly);
+        let arcA2 = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
+        let span = arcA2.stop - arcA2.start;
+        let sx = inter.x + r2 * Math.cos(arcA2.start);
+        let sy = inter.y + r2 * Math.sin(arcA2.start);
+        let ex = inter.x + r2 * Math.cos(arcA2.stop);
+        let ey = inter.y + r2 * Math.sin(arcA2.stop);
+        let largeArc = span > Math.PI ? 1 : 0;
+        let c2 = color(al.col || '#ffffff');
+        let colStr = `rgb(${floor(red(c2))},${floor(green(c2))},${floor(blue(c2))})`;
+        svgPlain.push(`  <path d="M ${sx.toFixed(2)},${sy.toFixed(2)} A ${r2.toFixed(2)},${r2.toFixed(2)} 0 ${largeArc},1 ${ex.toFixed(2)},${ey.toFixed(2)}" fill="none" stroke="${colStr}" stroke-opacity="0.63" stroke-width="${al.weight || 1.5}" />`);
       }
       svgPlain.push('</svg>');
       let svgPlainBlob = new Blob([svgPlain.join('\n')], { type: 'image/svg+xml' });
@@ -717,6 +1048,7 @@ function doUndo() {
     redoStack.push(removed);
     if (removed === calibrationLine) { calibrationLine = null; pixelsPerUnit = 0; }
     if (removed === selectedLine) { selectedLine = null; inputFocused = false; }
+    angleLabels = angleLabels.filter(al => al.line1 !== removed && al.line2 !== removed);
   }
 }
 

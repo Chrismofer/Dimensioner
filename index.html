@@ -136,7 +136,11 @@
             <label>Zoom</label>
             <div id="zoomDisplay">1.00x</div>
           </div>
-          <div style="width:90px">
+          <div style="flex:2; padding-left:20px">
+            <label>Position</label>
+            <div id="posDisplay">X: 0 &nbsp; Y: 0</div>
+          </div>
+          <div style="width:80px">
             <button id="resetView" class="btn">Reset View</button>
           </div>
         </div>
@@ -151,6 +155,9 @@
         <button id="redoBtn" class="btn">Redo</button>
       </div>
 <br><br>
+      <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
+
+      <br><br>
       <button id="saveBtn" class="btn" style="background:#2a6; color:#fff">Save Output</button>
 
       <div>
@@ -181,6 +188,9 @@
 
     <!-- Canvas container -->
     <div id="canvas-holder"></div>
+
+    <!-- Measure Angle status -->
+    <div id="measureStatus" style="display:none; position:fixed; top:16px; left:276px; background:#333; border:1px solid #555; border-radius:6px; padding:10px 16px; color:#eee; font-size:14px; z-index:50;">Select two lines</div>
 
     <!-- Save modal -->
     <div id="saveModal">

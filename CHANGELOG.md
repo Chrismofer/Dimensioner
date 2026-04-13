@@ -1,5 +1,17 @@
 # Changelog
 
+
+## 2026-04-13
+
+- Fixed "reset view" bugs and added X/Y position readout to the toolbar
+- Added "measure angle" feature
+- Arc editing features to match line editing
+- Renamed PNG exports for clarity
+- "Reset Image" no longer clears lines, calibration, zoom, pan, or rotation, it only unloads the image
+- Added position readout font/size/color to match the Zoom readout
+- PNG label text is now always white (was using line color)
+
+
 ## 2026-04-11
 
 - Dimension label numbers (px, units, calibration) now draw in white instead of the line's color
@@ -14,3 +26,4 @@
 - Renamed "Reset Zoom" to "Reset View"; it now also re-centers the image
 - Fixed sidebar squishing on window resize (added `flex-shrink: 0` and `min-width`)
 - Updated README
+
