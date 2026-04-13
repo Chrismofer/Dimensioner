@@ -16,7 +16,7 @@ The workflow is simple:
 3. Draw lines over anything else you want to measure. it will calculate and display the real-world dimensions.
 
 
-<img width="2196" height="1485" alt="image" src="https://github.com/user-attachments/assets/9526c9fc-015f-44e8-86d2-62f58f6efb81" />
+<img width="1644" height="1480" alt="image" src="https://github.com/user-attachments/assets/0e16be06-b030-42ec-abd1-5ed1155ca22f" />
 
 
 
