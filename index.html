@@ -109,32 +109,44 @@
     <!-- Sidebar UI -->
     <div id="sidebar">
 
-      <button id="openBtn" class="btn">Open Image</button>
+      <button id="openBtn" class="btn" style="background:#5a9e6f; color:#fff">Open Image</button>
       <input id="fileInput" type="file" accept="image/*" />
 
-      <button id="resetImage" class="btn">Reset Image</button>
+      <button id="resetImage" class="btn" style="background:#9e5a5a; color:#fff; margin-bottom:60px">Reset Image</button>
 
       <div>
-        <label>Line Color</label>
-        <div class="small" style="margin-top:4px">
-          <input id="colorPicker" type="color" value="#ff0000" />
-          <button id="resetLines" class="btn">Reset Lines</button>
+        <div class="small" style="align-items:flex-start">
+          <div>
+            <label>Line Color</label>
+            <div style="margin-top:4px">
+              <input id="colorPicker" type="color" value="#efb110" />
+            </div>
+          </div>
+          <span style="width:20px"></span>
+          <div>
+            <label>Line Thickness</label>
+            <div class="small" style="margin-top:4px">
+              <input id="thicknessPicker" type="number" min="0.5" max="50" step="0.5" value="2" style="width:70px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px; margin-top:2px;" />
+              <span style="font-size:13px; color:#aaa;">px</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div>
-        <label>Line Thickness</label>
+      <div style="margin-bottom:40px">
         <div class="small" style="margin-top:4px">
-          <input id="thicknessPicker" type="number" min="0.5" max="50" step="0.5" value="1.5" style="width:70px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px;" />
-          <span style="font-size:13px; color:#aaa;">px</span>
+          <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
+        </div>
+        <div style="margin-top:10px">
+          <button id="resetLines" class="btn" style="background:#9e5a5a; color:#fff">Reset Lines</button>
         </div>
       </div>
 
-      <div>
-        <div class="small">
+      <div style="margin-top:30px">
+        <div class="small" style="align-items:flex-start">
           <div style="flex:1">
             <label>Zoom</label>
-            <div id="zoomDisplay">1.00x</div>
+            <input id="zoomInput" type="number" min="0.1" max="20" step="0.1" value="1.00" style="width:64px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px; margin-top:4px" />
           </div>
           <div style="flex:2; padding-left:20px">
             <label>Position</label>
@@ -155,28 +167,14 @@
         <button id="redoBtn" class="btn">Redo</button>
       </div>
 <br><br>
-      <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
 
-      <br><br>
       <button id="saveBtn" class="btn" style="background:#2a6; color:#fff">Save Output</button>
 
-      <div>
-        <br><br>
-        <label>Instructions:</label>
-        <div class="hint">
-          <br><br>
-          Load an image, drawing, etc. to be measured.<br><br>
-          Draw lines by 'click and drag'.<br><br>
-          Hold Shift to <b>snap</b> lines to 45&deg; angles.<br><br>
-          Click on a line to <b>select</b> it<br><br>
-          To move a line, <b>select</b> it then move its endpoints.<br><br>
-          Hold CTRL to <b>link</b> one line to another.<br><br>
-          Set line length by selecting a line, then enter a value.<br><br>
-          All other lines will automatically update their lengths.<br><br>
-          <b>Scroll</b> to zoom. <br><br>
-          Middle mouse click or arrow keys to pan. <br><br><br>
-          'Save' can output two .pngs, .svgs, and .csv.<br><br>
-        </div>
+      <div style="margin-top:160px">
+        <button id="toggleInstructions" class="btn" onclick="(function(){
+          var p = document.getElementById('instructionsPanel');
+          p.style.display = p.style.display === 'none' ? 'block' : 'none';
+        })()">Toggle Instructions</button>
       </div>
 
       <div style="margin-top:auto; font-size:12px; color:#999">
@@ -188,6 +186,45 @@
 
     <!-- Canvas container -->
     <div id="canvas-holder"></div>
+
+    <!-- Reset Lines confirmation dialog -->
+    <div id="resetLinesDialog" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2f2f2f; border:1px solid #555; border-radius:8px; padding:24px; color:#ddd; font-size:14px; z-index:70; box-shadow:0 4px 24px rgba(0,0,0,0.7); text-align:center; min-width:220px;">
+      <div style="margin-bottom:18px;">Are you sure?</div>
+      <div style="display:flex; gap:12px; justify-content:center;">
+        <button id="resetLinesYes" style="background:#9e5a5a; color:#fff; border:none; border-radius:4px; padding:8px 22px; cursor:pointer; font-size:14px;">Yes</button>
+        <button id="resetLinesNo" style="background:#444; color:#eee; border:none; border-radius:4px; padding:8px 22px; cursor:pointer; font-size:14px;">No</button>
+      </div>
+    </div>
+
+    <!-- Instructions panel -->
+    <div id="instructionsPanel" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2f2f2f; border:1px solid #555; border-radius:8px; padding:20px 24px; max-width:340px; color:#ddd; font-size:13px; line-height:1.6; z-index:60; box-shadow:0 4px 24px rgba(0,0,0,0.6);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <strong style="font-size:15px;">Instructions</strong>
+        <span onclick="document.getElementById('instructionsPanel').style.display='none'" style="cursor:pointer; font-size:18px; color:#aaa; line-height:1;">&times;</span>
+      </div>
+      Load an image, drawing, etc. to be measured.<br><br>
+      <b>Drawing &amp; selecting</b><br>
+      Draw lines by <b>click and drag</b>.<br>
+      Hold <b>Shift</b> to snap lines to 45&deg; angles.<br>
+      Click on a line to <b>select</b> it; click empty space to deselect.<br>
+      To move a line, select it then drag its endpoints.<br>
+      Hold <b>Ctrl</b> or <b>Alt</b> to <b>link</b> endpoints to other lines.<br>
+      Press <b>Delete</b> to remove the selected line or arc.<br>
+      <b>Ctrl+Z</b> / <b>Ctrl+Y</b> to undo / redo.<br><br>
+      <b>Calibration</b><br>
+      Select a line and type a known real-world value, then press <b>Enter</b>.<br>
+      All other lines update their lengths automatically.<br><br>
+      <b>Measure Angle</b><br>
+      Click <b>Measure Angle</b>, then click two lines.<br>
+      Move the mouse to choose sector and radius, click or press <b>Enter</b> to place.<br>
+      Click a placed arc to select it; drag to reposition.<br>
+      Press <b>Escape</b> or click the button again to cancel.<br><br>
+      <b>View</b><br>
+      <b>Scroll</b> to zoom &nbsp;|&nbsp; <b>+</b> / <b>-</b> keys to zoom.<br>
+      Arrow keys or middle-mouse drag to pan.<br>
+      ↺ / ↻ buttons to rotate 45&deg; &nbsp;|&nbsp; <b>Reset View</b> to re-center.<br><br>
+      <b>Save</b> outputs PNGs, SVGs, and CSV.
+    </div>
 
     <!-- Measure Angle status -->
     <div id="measureStatus" style="display:none; position:fixed; top:16px; left:276px; background:#333; border:1px solid #555; border-radius:6px; padding:10px 16px; color:#eee; font-size:14px; z-index:50;">Select two lines</div>

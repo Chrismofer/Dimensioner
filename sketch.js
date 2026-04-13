@@ -6,8 +6,8 @@ const ZOOM_STEP = 0.1;
 const PAN_STEP = 20;
 
 let lines = [];
-let currentLineColor = '#ff0000';
-let currentLineWeight = 1.5;
+let currentLineColor = '#efb110';
+let currentLineWeight = 2;
 let dragging = false;
 let dragStartX = 0, dragStartY = 0;
 let selectedLine = null;
@@ -34,6 +34,38 @@ let angleLabels = [];
 let _angleCkX = 0, _angleCkY = 0, _angleCkS = 0;
 let selectedAngleLabel = null;
 let angleLabelDragging = false;
+let statusFadeTimer = null;
+
+function showStatusError(msg) {
+  const status = document.getElementById('measureStatus');
+  if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
+  status.textContent = msg;
+  status.style.display = 'block';
+  status.style.color = '#ff4444';
+  status.style.border = '1px solid #ff4444';
+  status.style.opacity = '1';
+  status.style.transition = '';
+  statusFadeTimer = setTimeout(() => {
+    status.style.transition = 'opacity 0.6s';
+    status.style.opacity = '0';
+    statusFadeTimer = setTimeout(() => {
+      status.style.display = 'none';
+      status.style.opacity = '1';
+      status.style.transition = '';
+      status.style.color = '#eee';
+      status.style.border = '1px solid #555';
+    }, 650);
+  }, 5000);
+}
+
+function clearStatusFade() {
+  if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
+  const status = document.getElementById('measureStatus');
+  status.style.opacity = '1';
+  status.style.transition = '';
+  status.style.color = '#eee';
+  status.style.border = '1px solid #555';
+}
 
 let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn;
 let redoStack = []; // history of actions (tagged {type,item})
@@ -46,7 +78,7 @@ function setup() {
   fileInput = select('#fileInput');
   openBtn = select('#openBtn');
   colorPicker = select('#colorPicker');
-  zoomDisplay = select('#zoomDisplay');
+  zoomDisplay = select('#zoomInput');
   posDisplay = select('#posDisplay');
   resetView = select('#resetView');
 
@@ -55,6 +87,16 @@ function setup() {
   colorPicker.elt.addEventListener('input', function() {
     currentLineColor = String(this.value);
     if (selectedLine) selectedLine.col = currentLineColor;
+  });
+
+  document.getElementById('zoomInput').addEventListener('input', function() {
+    let v = parseFloat(this.value);
+    if (v > 0) { zoomAboutCenter(v); }
+    // if empty/invalid, do nothing — wait for Enter or blur
+  });
+  document.getElementById('zoomInput').addEventListener('change', function() {
+    let v = parseFloat(this.value);
+    if (!(v > 0)) this.value = nf(zoom,1,2); // restore on blur/Enter if still invalid
   });
 
   document.getElementById('thicknessPicker').addEventListener('input', function() {
@@ -74,10 +116,17 @@ function setup() {
   resetLines = select('#resetLines');
   resetImage = select('#resetImage');
   resetLines.mousePressed(()=> {
+    document.getElementById('resetLinesDialog').style.display = 'block';
+  });
+  document.getElementById('resetLinesYes').addEventListener('click', ()=> {
+    document.getElementById('resetLinesDialog').style.display = 'none';
     lines = []; redoStack = []; undoStack = [];
     calibrationLine = null; pixelsPerUnit = 0;
     selectedLine = null; inputFocused = false;
     angleLabels = []; selectedAngleLabel = null; angleLabelDragging = false;
+  });
+  document.getElementById('resetLinesNo').addEventListener('click', ()=> {
+    document.getElementById('resetLinesDialog').style.display = 'none';
   });
   resetImage.mousePressed(()=> {
     img = null;
@@ -108,7 +157,7 @@ function setup() {
     }
     status.style.display = 'block';
     if (lines.length < 2) {
-      status.textContent = 'Not enough lines';
+      showStatusError('Not enough lines');
     } else {
       measureAngleMode = true;
       angleLines = [];
@@ -183,7 +232,13 @@ function draw() {
   rotate(viewAngle);
   translate(-width/2 + imgX, -height/2 + imgY);
   scale(zoom);
-  if (img) image(img, 0, 0);
+  if (img) {
+    image(img, 0, 0);
+    noFill();
+    stroke(0);
+    strokeWeight(1.5 / zoom);
+    rect(0, 0, img.width, img.height);
+  }
   noFill();
   let flashOn = floor(millis() / 300) % 2 === 0;
   for (let ln of lines) {
@@ -220,8 +275,8 @@ function draw() {
     ellipse(sp2.x, sp2.y, EP_RADIUS*2, EP_RADIUS*2);
   }
 
-  // CTRL held: show snap target circles on all line endpoints
-  if (keyIsDown(CONTROL) && !measureAngleMode) {
+  // CTRL/ALT held: show snap target circles on all line endpoints
+  if ((keyIsDown(CONTROL) || keyIsDown(ALT)) && !measureAngleMode) {
     for (let ln of lines) {
       for (let pt of [{x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2}]) {
         let sp = toScreenCoords(pt.x, pt.y);
@@ -256,7 +311,7 @@ function draw() {
     drawLengthLabel(sp1s.x, sp1s.y, sp2.x, sp2.y, previewLen, currentLineColor, false, "", false);
   }
 
-  zoomDisplay.html(nf(zoom,1,2) + 'x');
+  if (document.activeElement !== zoomDisplay.elt) zoomDisplay.elt.value = nf(zoom,1,2);
   posDisplay.html('X:&nbsp;' + floor(imgX) + '<br>Y:&nbsp;' + floor(imgY));
 
   // Draw confirmed angle labels
@@ -425,11 +480,12 @@ function confirmAngle(mx, my) {
   let angleDeg = degrees(arcA.stop - arcA.start);
   let lpos = toImgCoords(mx, my);
   let r = dist(inter.x, inter.y, lpos.x, lpos.y);
-  angleLabels.push({ ix: inter.x, iy: inter.y, angleDeg: angleDeg, lx: lpos.x, ly: lpos.y, r: r, line1: angleLines[0], line2: angleLines[1], col: angleLines[0].col, weight: currentLineWeight });
+  angleLabels.push({ ix: inter.x, iy: inter.y, angleDeg: angleDeg, lx: lpos.x, ly: lpos.y, r: r, line1: angleLines[0], line2: angleLines[1], col: currentLineColor, weight: currentLineWeight });
   redoStack.push({ type: 'arc', item: angleLabels[angleLabels.length - 1] });
   undoStack = [];
   angleLines = [];
   measureAngleMode = false;
+  clearStatusFade();
   document.getElementById('measureStatus').style.display = 'none';
 }
 
@@ -650,8 +706,8 @@ function mousePressed(event) {
   dragging = true;
   dragStartX = mouseX;
   dragStartY = mouseY;
-  // CTRL held: snap start to a nearby endpoint
-  if (keyIsDown(CONTROL)) {
+  // CTRL/ALT held: snap start to a nearby endpoint
+  if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
     for (let ln of lines) {
       let sp1 = toScreenCoords(ln.x1, ln.y1);
       let sp2 = toScreenCoords(ln.x2, ln.y2);
@@ -673,8 +729,11 @@ function mouseDragged() {
     return;
   }
   if (mmbPanning) {
-    imgX += mouseX - mmbLastX;
-    imgY += mouseY - mmbLastY;
+    let dx = mouseX - mmbLastX;
+    let dy = mouseY - mmbLastY;
+    let c = Math.cos(-viewAngle), s = Math.sin(-viewAngle);
+    imgX += dx * c - dy * s;
+    imgY += dx * s + dy * c;
     mmbLastX = mouseX;
     mmbLastY = mouseY;
     return;
@@ -682,7 +741,7 @@ function mouseDragged() {
   if (epDragLine) {
     let ic = toImgCoords(mouseX, mouseY);
     let ix = ic.x, iy = ic.y;
-    if (keyIsDown(CONTROL)) {
+    if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
       for (let ln of lines) {
         for (let pt of [{x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2}]) {
           let sp = toScreenCoords(pt.x, pt.y);
@@ -720,7 +779,7 @@ function mouseReleased() {
     let ic2 = snapEndpoint(ic1.x, ic1.y, ic2raw.x, ic2raw.y);
     let ix1 = ic1.x, iy1 = ic1.y;
     let ix2 = ic2.x, iy2 = ic2.y;
-    if (keyIsDown(CONTROL)) {
+    if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
       for (let ln of lines) {
         let sp1 = toScreenCoords(ln.x1, ln.y1);
         let sp2 = toScreenCoords(ln.x2, ln.y2);
@@ -772,6 +831,7 @@ function keyPressed() {
     if (measureAngleMode || angleLines.length > 0) {
       measureAngleMode = false;
       angleLines = [];
+      clearStatusFade();
       document.getElementById('measureStatus').style.display = 'none';
       return;
     }
@@ -813,10 +873,16 @@ function keyPressed() {
     zoomAboutCenter(max(0.05, zoom - ZOOM_STEP));
   } else if (key === '=' || key === '+') {
     zoomAboutCenter(zoom + ZOOM_STEP);
-  } else if (keyCode === LEFT_ARROW) { imgX -= PAN_STEP; return false; }
-  else if (keyCode === RIGHT_ARROW) { imgX += PAN_STEP; return false; }
-  else if (keyCode === UP_ARROW) { imgY -= PAN_STEP; return false; }
-  else if (keyCode === DOWN_ARROW) { imgY += PAN_STEP; return false; }
+  } else if (keyCode === LEFT_ARROW || keyCode === RIGHT_ARROW || keyCode === UP_ARROW || keyCode === DOWN_ARROW) {
+    let focused = document.activeElement;
+    if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) return;
+    let c=Math.cos(-viewAngle), s=Math.sin(-viewAngle);
+    if      (keyCode === LEFT_ARROW)  { imgX+=(-PAN_STEP)*c; imgY+=(-PAN_STEP)*s; }
+    else if (keyCode === RIGHT_ARROW) { imgX+=PAN_STEP*c;    imgY+=PAN_STEP*s; }
+    else if (keyCode === UP_ARROW)    { imgX-=(-PAN_STEP)*s; imgY+=(-PAN_STEP)*c; }
+    else if (keyCode === DOWN_ARROW)  { imgX-=PAN_STEP*s;    imgY+=PAN_STEP*c; }
+    return false;
+  }
 }
 
 // Returns (possibly snapped) endpoint {x, y} in image coords.
