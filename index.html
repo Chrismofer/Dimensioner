@@ -116,7 +116,7 @@
 
       <div>
         <div class="small" style="align-items:flex-start">
-          <div>
+          <div style="margin-left:8px">
             <label>Line Color</label>
             <div style="margin-top:4px">
               <input id="colorPicker" type="color" value="#efb110" />
@@ -136,6 +136,18 @@
       <div style="margin-bottom:40px">
         <div class="small" style="margin-top:4px">
           <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
+        </div>
+        <div style="margin-top:10px">
+          <button id="drawGridBtn" class="btn" style="background:#46a; color:#fff">Draw Grid</button>
+        </div>
+        <div style="margin-top:6px; font-size:13px; color:#bbb">
+          <div style="font-size:15px; color:#eee; text-align:center">Number of Cells:</div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:4px">
+            <label style="white-space:nowrap">Cross</label>
+            <input id="gridDivCross" type="number" min="1" max="64" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
+            <label style="white-space:nowrap">Along</label>
+            <input id="gridDivAlong" type="number" min="1" max="64" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
+          </div>
         </div>
         <div style="margin-top:10px">
           <button id="resetLines" class="btn" style="background:#9e5a5a; color:#fff">Reset Lines</button>
@@ -181,7 +193,6 @@
         Dimensioner by Chris Bovee <br>
         JS + HTML
       </div>
-
     </div>
 
     <!-- Canvas container -->
@@ -219,6 +230,12 @@
       Move the mouse to choose sector and radius, click or press <b>Enter</b> to place.<br>
       Click a placed arc to select it; drag to reposition.<br>
       Press <b>Escape</b> or click the button again to cancel.<br><br>
+      <b>Draw Grid</b><br>
+      Click <b>Draw Grid</b>, then click two lines to define the grid edges.<br>
+      Set <b>Cross</b> and <b>Along</b> cell counts before or after selecting.<br>
+      Drag the endpoint circles to adjust the grid shape live.<br>
+      Press <b>Enter</b> to commit the grid lines, <b>Escape</b> to cancel.<br>
+      Press the button again to cancel and clear the selection.<br><br>
       <b>View</b><br>
       <b>Scroll</b> to zoom &nbsp;|&nbsp; <b>+</b> / <b>-</b> keys to zoom.<br>
       Arrow keys or middle-mouse drag to pan.<br>
@@ -226,8 +243,8 @@
       <b>Save</b> outputs PNGs, SVGs, and CSV.
     </div>
 
-    <!-- Measure Angle status -->
-    <div id="measureStatus" style="display:none; position:fixed; top:16px; left:276px; background:#333; border:1px solid #555; border-radius:6px; padding:10px 16px; color:#eee; font-size:14px; z-index:50;">Select two lines</div>
+    <!-- Unified status bar -->
+    <div id="statusBar" style="display:none; position:fixed; top:16px; left:276px; background:#333; border:1px solid #555; border-radius:6px; padding:10px 16px; color:#eee; font-size:14px; z-index:50;"></div>
 
     <!-- Save modal -->
     <div id="saveModal">
