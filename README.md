@@ -9,6 +9,7 @@ Ideal for measuring drawings/renderings that are orthographic or isometric.
 
 Dimensioner is designed for extracting real-world measurements from relatively undistorted images, technical drawings, or straight-on photographs of objects.
 
+
 The workflow is simple:
 1. Load an image where at least one dimension is already known
 2. Draw a line over that known feature and enter its real-world value to **calibrate** the scale
@@ -22,18 +23,21 @@ The workflow is simple:
 ## Features
 
 - Opens any browser-supported image format (PNG, JPG, WebP, GIF, etc.)
-- Works best with isometric and orthographic drawings, or top/front/side view of objects
+- Works best with isometric and orthographic drawings, or top/front/side view images of objects
 - Draw and reposition measurement lines over the image
-- Lines display length in pixels; once calibrated, all lines show real-world units automatically
-- Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly
+- Lines display length in pixels; once calibrated, lines show real-world units automatically
+- **Measure angles** between any two lines — an arc is drawn in the sector you choose, with a live degree label you click to place
+- Selected angle labels can be clicked and dragged to reposition.
+- Angle arcs and labels update live if the referenced lines are moved.
+- Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly.
 - Snap lines to 45° angles and link endpoints to other lines
 - Zoom, pan, and rotate the view
 - Unlimited Undo / Redo
 - Save output options:
-  - **PNG** composite image with lines and labels overlaid
-  - **PNG** lines and labels only
-  - **SVG** vector graphic of lines and labels
-  - **SVG** vector graphic of lines only
+  - **PNG** composite image with lines and labels.
+  - **PNG** lines and labels only on dark background.
+  - **SVG** vector graphic of lines and labels.
+  - **SVG** vector graphic of lines and arcs only
   - **CSV** spreadsheet of all line coordinates and lengths
 
 ## Controls
@@ -49,6 +53,11 @@ The workflow is simple:
 | Move endpoint | Select line first, drag endpoint |
 | Set calibration | Select line, type value, press **Enter** or ✓ |
 | Delete selected line | **Delete** key |
+| Measure angle | Click **Measure Angle** button, then select two lines |
+| Place angle arc | Move mouse to desired position, click or press **Enter** |
+| Select arc | Click on arc or its label in normal mode |
+| Reposition arc | Click and drag a selected arc |
+| Cancel angle mode | Press **Escape** or click **Measure Angle** again |
 | Undo / Redo | **Ctrl+Z** / **Ctrl+Y** |
 | Zoom | Scroll wheel or `+` / `-` |
 | Pan | Arrow keys or middle-mouse click and drag |
