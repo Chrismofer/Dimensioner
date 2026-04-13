@@ -29,6 +29,7 @@ The workflow is simple:
 - Measure angles between any two lines: an arc and angle label can be placed in any angle sector.
 - Selected angle labels can be clicked and dragged to reposition.
 - Angle arcs and labels update live if the referenced lines are moved.
+- Draw a grid between two lines with configurable cross and along cell counts
 - Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly.
 - Snap lines to 45° angles and link endpoints to other lines
 - Zoom, pan, and rotate the view
@@ -39,6 +40,7 @@ The workflow is simple:
   - **SVG** vector graphic of lines and labels.
   - **SVG** vector graphic of lines and arcs only
   - **CSV** spreadsheet of all line coordinates and lengths
+
 
 ## Controls
 
@@ -58,6 +60,10 @@ The workflow is simple:
 | Select arc | Click on arc or its label in normal mode |
 | Reposition arc | Click and drag a selected arc |
 | Cancel angle mode | Press **Escape** or click **Measure Angle** again |
+| Draw grid | Click **Draw Grid** button, then select two lines |
+| Set grid cell counts | **Cross** / **Along** inputs in sidebar |
+| Adjust grid extents | Drag endpoint circles while in grid mode |
+| Confirm / Cancel grid | **Enter** / **Escape** |
 | Undo / Redo | **Ctrl+Z** / **Ctrl+Y** |
 | Zoom | Scroll wheel, `+` / `-`, or zoom input box |
 | Pan | Arrow keys or middle-mouse click and drag |
