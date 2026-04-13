@@ -30,44 +30,52 @@ let pixelsPerUnit = 0;
 
 let measureAngleMode = false;
 let angleLines = [];
+let drawGridMode = false;
+let gridLines = [];
+let gridDivisionsX = 2; // cross lines (parallel to A/B)
+let gridDivisionsY = 2; // along lines (parallel to connectors)
 let angleLabels = [];
+let reverseLineActive = false;
 let _angleCkX = 0, _angleCkY = 0, _angleCkS = 0;
 let selectedAngleLabel = null;
 let angleLabelDragging = false;
 let statusFadeTimer = null;
 
-function showStatusError(msg) {
-  const status = document.getElementById('measureStatus');
+function showStatus(msg, isError) {
   if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
-  status.textContent = msg;
-  status.style.display = 'block';
-  status.style.color = '#ff4444';
-  status.style.border = '1px solid #ff4444';
-  status.style.opacity = '1';
-  status.style.transition = '';
-  statusFadeTimer = setTimeout(() => {
-    status.style.transition = 'opacity 0.6s';
-    status.style.opacity = '0';
+  const s = document.getElementById('statusBar');
+  s.textContent = msg;
+  s.style.display = 'block';
+  s.style.opacity = '1';
+  s.style.transition = '';
+  s.style.color = isError ? '#ff4444' : '#eee';
+  s.style.border = isError ? '1px solid #ff4444' : '1px solid #555';
+  if (isError) {
     statusFadeTimer = setTimeout(() => {
-      status.style.display = 'none';
-      status.style.opacity = '1';
-      status.style.transition = '';
-      status.style.color = '#eee';
-      status.style.border = '1px solid #555';
-    }, 650);
-  }, 5000);
+      s.style.transition = 'opacity 0.6s';
+      s.style.opacity = '0';
+      statusFadeTimer = setTimeout(() => {
+        s.style.display = 'none';
+        s.style.opacity = '1';
+        s.style.transition = '';
+        s.style.color = '#eee';
+        s.style.border = '1px solid #555';
+      }, 650);
+    }, 5000);
+  }
 }
 
-function clearStatusFade() {
+function hideStatus() {
   if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
-  const status = document.getElementById('measureStatus');
-  status.style.opacity = '1';
-  status.style.transition = '';
-  status.style.color = '#eee';
-  status.style.border = '1px solid #555';
+  const s = document.getElementById('statusBar');
+  s.style.display = 'none';
+  s.style.opacity = '1';
+  s.style.transition = '';
+  s.style.color = '#eee';
+  s.style.border = '1px solid #555';
 }
 
-let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn;
+let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn, drawGridBtn;
 let redoStack = []; // history of actions (tagged {type,item})
 let undoStack = []; // undone actions available to redo
 
@@ -116,6 +124,9 @@ function setup() {
   resetLines = select('#resetLines');
   resetImage = select('#resetImage');
   resetLines.mousePressed(()=> {
+    drawGridMode = false; gridLines = [];
+    measureAngleMode = false; angleLines = [];
+    hideStatus();
     document.getElementById('resetLinesDialog').style.display = 'block';
   });
   document.getElementById('resetLinesYes').addEventListener('click', ()=> {
@@ -145,31 +156,70 @@ function setup() {
   saveBtn = select('#saveBtn');
   saveBtn.mousePressed(saveOutput);
 
-  measureAngleBtn = select('#measureAngleBtn');
-  measureAngleBtn.mousePressed(() => {
-    const status = document.getElementById('measureStatus');
-    if (measureAngleMode || angleLines.length > 0) {
-      // Toggle off / cancel
-      measureAngleMode = false;
-      angleLines = [];
-      status.style.display = 'none';
+  let gridDivCross = document.getElementById('gridDivCross');
+  gridDivCross.addEventListener('change', () => {
+    let v = parseInt(gridDivCross.value);
+    if (v >= 1 && v <= 64) gridDivisionsX = v; else gridDivCross.value = gridDivisionsX;
+  });
+  let gridDivAlong = document.getElementById('gridDivAlong');
+  gridDivAlong.addEventListener('change', () => {
+    let v = parseInt(gridDivAlong.value);
+    if (v >= 1 && v <= 64) gridDivisionsY = v; else gridDivAlong.value = gridDivisionsY;
+  });
+
+  drawGridBtn = select('#drawGridBtn');
+  drawGridBtn.mousePressed(() => {
+    if (drawGridMode || gridLines.length > 0) {
+      drawGridMode = false;
+      gridLines = [];
+      hideStatus();
       return;
     }
-    status.style.display = 'block';
     if (lines.length < 2) {
-      showStatusError('Not enough lines');
+      showStatus('Not enough lines', true);
+      return;
+    }
+    drawGridMode = true;
+    gridLines = [];
+    if (lines.length === 2) {
+      gridLines = [lines[0], lines[1]];
+      selectedLine = null; inputFocused = false;
+      showStatus('Press Enter to confirm, Escape to cancel');
+    } else if (selectedLine) {
+      gridLines.push(selectedLine);
+      selectedLine = null; inputFocused = false;
+      showStatus('Select second line');
+    } else {
+      showStatus('Select first line');
+    }
+  });
+
+  measureAngleBtn = select('#measureAngleBtn');
+  measureAngleBtn.mousePressed(() => {
+    if (measureAngleMode || angleLines.length > 0) {
+      measureAngleMode = false;
+      angleLines = [];
+      hideStatus();
+      return;
+    }
+    if (lines.length < 2) {
+      showStatus('Not enough lines', true);
     } else {
       measureAngleMode = true;
       angleLines = [];
-      if (selectedLine) {
+      if (lines.length === 2) {
+        angleLines = [lines[0], lines[1]];
+        selectedLine = null; inputFocused = false;
+        showStatus('Click to place angle label');
+      } else if (selectedLine) {
         angleLines.push(selectedLine);
         selectedLine = null;
         inputFocused = false;
-        status.textContent = 'Select second line';
+        showStatus('Select second line');
       } else {
         selectedLine = null;
         inputFocused = false;
-        status.textContent = 'Select first line';
+        showStatus('Select first line');
       }
     }
   });
@@ -245,9 +295,23 @@ function draw() {
     let drawCol = ln.col;
     if (ln === selectedLine && !flashOn) drawCol = invertColor(drawCol);
     if (angleLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
+    if (gridLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     strokeWeight((ln.weight || 1.5) / zoom);
     stroke(drawCol);
     line(ln.x1, ln.y1, ln.x2, ln.y2);
+  }
+  // Draw Grid preview lines
+  if (gridLines.length === 2) {
+    let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY);
+    strokeWeight(currentLineWeight / zoom);
+    stroke(currentLineColor);
+    drawingContext.setLineDash([8 / zoom, 6 / zoom]);
+    for (let s of segs) {
+      if (!s.dashed) drawingContext.setLineDash([]);
+      else drawingContext.setLineDash([8 / zoom, 6 / zoom]);
+      line(s.x1, s.y1, s.x2, s.y2);
+    }
+    drawingContext.setLineDash([]);
   }
   if (dragging) {
     let ic1 = toImgCoords(dragStartX, dragStartY);
@@ -258,6 +322,22 @@ function draw() {
     line(ic1.x, ic1.y, ic2.x, ic2.y);
   }
   pop();
+
+  // Grid mode endpoint circles (drawn in screen space after pop)
+  if (gridLines.length === 2) {
+    for (let gl of gridLines) {
+      for (let pt of [{x: gl.x1, y: gl.y1}, {x: gl.x2, y: gl.y2}]) {
+        let sp = toScreenCoords(pt.x, pt.y);
+        strokeWeight(2);
+        stroke(0);
+        noFill();
+        ellipse(sp.x, sp.y, EP_RADIUS * 2, EP_RADIUS * 2);
+        strokeWeight(1.5);
+        stroke(255);
+        ellipse(sp.x, sp.y, EP_RADIUS * 2, EP_RADIUS * 2);
+      }
+    }
+  }
 
   if (selectedLine && !measureAngleMode) {
     let sp1 = toScreenCoords(selectedLine.x1, selectedLine.y1);
@@ -471,6 +551,53 @@ function drawAngleLabel(sx, sy, angleDeg, inverted) {
   text(label, sx, sy);
 }
 
+// Returns all new lines for the grid as [{x1,y1,x2,y2},...]:
+// 2 outer connectors + interior cross and along lines
+function buildGridLines(a, b, Nx, Ny) {
+  let d1 = dist(a.x1, a.y1, b.x1, b.y1) + dist(a.x2, a.y2, b.x2, b.y2);
+  let d2 = dist(a.x1, a.y1, b.x2, b.y2) + dist(a.x2, a.y2, b.x1, b.y1);
+  let b1x, b1y, b2x, b2y;
+  if (d1 <= d2) { b1x = b.x1; b1y = b.y1; b2x = b.x2; b2y = b.y2; }
+  else          { b1x = b.x2; b1y = b.y2; b2x = b.x1; b2y = b.y1; }
+  let result = [];
+  // Outer connectors: solid
+  result.push({ x1: a.x1, y1: a.y1, x2: b1x, y2: b1y, dashed: false });
+  result.push({ x1: a.x2, y1: a.y2, x2: b2x, y2: b2y, dashed: false });
+  // Interior cross lines (parallel to A/B): dashed
+  for (let k = 1; k < Nx; k++) {
+    let t = k / Nx;
+    result.push({
+      x1: a.x1 + t * (a.x2 - a.x1), y1: a.y1 + t * (a.y2 - a.y1),
+      x2: b1x  + t * (b2x  - b1x),  y2: b1y  + t * (b2y  - b1y),
+      dashed: true
+    });
+  }
+  // Interior along lines (parallel to connectors): dashed
+  for (let k = 1; k < Ny; k++) {
+    let s = k / Ny;
+    result.push({
+      x1: a.x1 + s * (b1x - a.x1), y1: a.y1 + s * (b1y - a.y1),
+      x2: a.x2 + s * (b2x - a.x2), y2: a.y2 + s * (b2y - a.y2),
+      dashed: true
+    });
+  }
+  return result;
+}
+
+function confirmGrid() {
+  if (gridLines.length < 2) return;
+  let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY);
+  for (let s of segs) {
+    let ln = new DrawnLine(s.x1, s.y1, s.x2, s.y2, currentLineColor, currentLineWeight);
+    lines.push(ln);
+    redoStack.push({ type: 'line', item: ln });
+  }
+  undoStack = [];
+  drawGridMode = false;
+  gridLines = [];
+  hideStatus();
+}
+
 function confirmAngle(mx, my) {
   if (angleLines.length < 2) return;
   let inter = lineIntersection(angleLines[0], angleLines[1]);
@@ -485,8 +612,7 @@ function confirmAngle(mx, my) {
   undoStack = [];
   angleLines = [];
   measureAngleMode = false;
-  clearStatusFade();
-  document.getElementById('measureStatus').style.display = 'none';
+  hideStatus();
 }
 
 function getSectorArcAngles(inter_sp, ln1, ln2, mx, my) {
@@ -525,7 +651,8 @@ function getSectorArcAnglesImg(inter_img, ln1, ln2, mx, my) {
   return { start, stop };
 }
 
-function drawAngleLabelsOnGraphics(g) {
+function drawAngleLabelsOnGraphics(g, ox, oy) {
+  ox = ox || 0; oy = oy || 0;
   g.textFont('Arial');
   g.textSize(12);
   g.textAlign(CENTER, CENTER);
@@ -533,23 +660,25 @@ function drawAngleLabelsOnGraphics(g) {
   for (let al of angleLabels) {
     let inter = lineIntersection(al.line1, al.line2);
     if (!inter) continue;
-    let r = dist(inter.x, inter.y, al.lx, al.ly);
+    let ix = inter.x - ox, iy = inter.y - oy;
+    let lx = al.lx - ox, ly = al.ly - oy;
+    let r = dist(ix, iy, lx, ly);
     let arcA = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
     let angleDeg = degrees(arcA.stop - arcA.start);
     let c = color(al.col || '#ffffff');
     g.noFill();
     g.stroke(red(c), green(c), blue(c), 160);
     g.strokeWeight(al.weight || 1.5);
-    g.arc(inter.x, inter.y, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
+    g.arc(ix, iy, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
     // label box
     let label = nf(angleDeg, 1, 1) + '\u00b0';
     let tw = g.textWidth(label);
     let boxW = tw + pad * 2;
     g.noStroke();
     g.fill(0, 180);
-    g.rect(al.lx - boxW / 2, al.ly - boxH / 2, boxW, boxH, 3);
+    g.rect(lx - boxW / 2, ly - boxH / 2, boxW, boxH, 3);
     g.fill(255);
-    g.text(label, al.lx, al.ly);
+    g.text(label, lx, ly);
   }
 }
 
@@ -575,6 +704,39 @@ function mousePressed(event) {
     return;
   }
 
+  if (drawGridMode) {
+    // When both lines selected, check for endpoint drag first
+    if (gridLines.length === 2) {
+      for (let gl of gridLines) {
+        let sp1 = toScreenCoords(gl.x1, gl.y1);
+        let sp2 = toScreenCoords(gl.x2, gl.y2);
+        if (dist(mouseX, mouseY, sp1.x, sp1.y) <= EP_RADIUS) {
+          epDragLine = gl; epDragIndex = 1; return;
+        }
+        if (dist(mouseX, mouseY, sp2.x, sp2.y) <= EP_RADIUS) {
+          epDragLine = gl; epDragIndex = 2; return;
+        }
+      }
+    }
+    let hitThresh = 8;
+    for (let ln of lines) {
+      let sp1 = toScreenCoords(ln.x1, ln.y1);
+      let sp2 = toScreenCoords(ln.x2, ln.y2);
+      if (pointToSegDist(mouseX, mouseY, sp1.x, sp1.y, sp2.x, sp2.y) < hitThresh) {
+        if (gridLines.includes(ln)) {
+          gridLines = gridLines.filter(l => l !== ln);
+        } else if (gridLines.length < 2) {
+          gridLines.push(ln);
+        }
+        if (gridLines.length === 0) showStatus('Select first line');
+        else if (gridLines.length === 1) showStatus('Select second line');
+        else showStatus('Press Enter to confirm, Escape to cancel');
+        break;
+      }
+    }
+    return;
+  }
+
   if (measureAngleMode) {
     // Check if checkbox clicked
     if (angleLines.length >= 2 &&
@@ -594,13 +756,12 @@ function mousePressed(event) {
         } else if (angleLines.length < 2) {
           angleLines.push(ln);
         }
-        const status = document.getElementById('measureStatus');
         if (angleLines.length === 0) {
-          status.textContent = 'Select first line';
+          showStatus('Select first line');
         } else if (angleLines.length === 1) {
-          status.textContent = 'Select second line';
+          showStatus('Select second line');
         } else if (angleLines.length >= 2) {
-          status.textContent = 'Lines selected';
+          showStatus('Lines selected');
         }
         hitLine = true;
         break;
@@ -694,6 +855,12 @@ function mousePressed(event) {
         inputText = hit.customValue || '';
         inputFocused = true;
         justSelected = true;
+        if (reverseLineActive) {
+          let tmp;
+          tmp = hit.x1; hit.x1 = hit.x2; hit.x2 = tmp;
+          tmp = hit.y1; hit.y1 = hit.y2; hit.y2 = tmp;
+          reverseLineActive = false;
+        }
       }
       dragging = false;
       return;
@@ -819,6 +986,11 @@ function keyPressed() {
     return;
   }
 
+  if (gridLines.length >= 2 && keyCode === ENTER) {
+    confirmGrid();
+    return;
+  }
+
   if (inputFocused) {
     if (keyCode === ENTER) { confirmInput(); return; }
     else if (keyCode === BACKSPACE) {
@@ -828,11 +1000,16 @@ function keyPressed() {
   }
 
   if (key === 'Escape' || keyCode === ESCAPE) {
+    if (drawGridMode || gridLines.length > 0) {
+      drawGridMode = false;
+      gridLines = [];
+      hideStatus();
+      return;
+    }
     if (measureAngleMode || angleLines.length > 0) {
       measureAngleMode = false;
       angleLines = [];
-      clearStatusFade();
-      document.getElementById('measureStatus').style.display = 'none';
+      hideStatus();
       return;
     }
   }
@@ -902,15 +1079,16 @@ function snapEndpoint(ix1, iy1, ix2, iy2) {
   return { x: ix2, y: iy2 };
 }
 
-function drawLabelsOnGraphics(g) {
+function drawLabelsOnGraphics(g, ox, oy) {
+  ox = ox || 0; oy = oy || 0;
   g.textFont('Arial');
   g.textSize(12);
   let pad = 4;
   let th = 14;
   let boxH = th + pad * 2;
   for (let ln of lines) {
-    let cx = (ln.x1 + ln.x2) / 2;
-    let cy = (ln.y1 + ln.y2) / 2;
+    let cx = (ln.x1 + ln.x2) / 2 - ox;
+    let cy = (ln.y1 + ln.y2) / 2 - oy;
     let pxLabel = nf(ln.imgLen, 1, 1) + ' px';
     let hasUnits = pixelsPerUnit > 0 && ln !== calibrationLine;
     let unitLabel = hasUnits ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
@@ -967,19 +1145,43 @@ function saveOutput() {
     const doSvgOnly     = document.getElementById('ckSvgOnly').checked;
     const doCsv         = document.getElementById('ckCsv').checked;
 
-    let W = img ? img.width  : width;
-    let H = img ? img.height : height;
+    const PAD = 40;
+
+    // Compute bounding box covering image + all line endpoints
+    let bx1 = img ? 0 : Infinity,  by1 = img ? 0 : Infinity;
+    let bx2 = img ? img.width : -Infinity, by2 = img ? img.height : -Infinity;
+    for (let ln of lines) {
+      bx1 = min(bx1, ln.x1, ln.x2); by1 = min(by1, ln.y1, ln.y2);
+      bx2 = max(bx2, ln.x1, ln.x2); by2 = max(by2, ln.y1, ln.y2);
+    }
+    for (let al of angleLabels) {
+      bx1 = min(bx1, al.lx); by1 = min(by1, al.ly);
+      bx2 = max(bx2, al.lx); by2 = max(by2, al.ly);
+    }
+    if (lines.length === 0 && !img) { bx1 = 0; by1 = 0; bx2 = width; by2 = height; }
+
+    let ox = bx1 - PAD, oy = by1 - PAD;
+    let W = (bx2 - bx1) + PAD * 2;
+    let H = (by2 - by1) + PAD * 2;
+
+    // helper: draw lines + labels onto a graphics with offset
+    function drawIntoG(g, drawImg) {
+      if (drawImg && img) g.image(img, -ox, -oy);
+      else g.background(40);
+      g.noFill();
+      for (let ln of lines) {
+        g.strokeWeight(ln.weight || 1.5);
+        g.stroke(ln.col);
+        g.line(ln.x1 - ox, ln.y1 - oy, ln.x2 - ox, ln.y2 - oy);
+      }
+    }
 
     // 1. PNG: image + lines + labels
     if (doPngComposite) {
       let g1 = createGraphics(W, H);
-      if (img) g1.image(img, 0, 0);
-      else g1.background(40);
-      g1.strokeWeight(1.5);
-      g1.noFill();
-      for (let ln of lines) { g1.strokeWeight(ln.weight || 1.5); g1.stroke(ln.col); g1.line(ln.x1, ln.y1, ln.x2, ln.y2); }
-      drawLabelsOnGraphics(g1);
-      drawAngleLabelsOnGraphics(g1);
+      drawIntoG(g1, true);
+      drawLabelsOnGraphics(g1, ox, oy);
+      drawAngleLabelsOnGraphics(g1, ox, oy);
       g1.canvas.toBlob(blob => {
         let a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -992,12 +1194,9 @@ function saveOutput() {
     // 2. PNG: lines + labels only
     if (doPngLines) {
       let g2 = createGraphics(W, H);
-      g2.background(40);
-      g2.strokeWeight(1.5);
-      g2.noFill();
-      for (let ln of lines) { g2.strokeWeight(ln.weight || 1.5); g2.stroke(ln.col); g2.line(ln.x1, ln.y1, ln.x2, ln.y2); }
-      drawLabelsOnGraphics(g2);
-      drawAngleLabelsOnGraphics(g2);
+      drawIntoG(g2, false);
+      drawLabelsOnGraphics(g2, ox, oy);
+      drawAngleLabelsOnGraphics(g2, ox, oy);
       g2.canvas.toBlob(blob => {
         let a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -1012,12 +1211,12 @@ function saveOutput() {
       let svgParts = [];
       svgParts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
       for (let ln of lines) {
-        svgParts.push(`  <line x1="${ln.x1.toFixed(2)}" y1="${ln.y1.toFixed(2)}" x2="${ln.x2.toFixed(2)}" y2="${ln.y2.toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+        svgParts.push(`  <line x1="${(ln.x1-ox).toFixed(2)}" y1="${(ln.y1-oy).toFixed(2)}" x2="${(ln.x2-ox).toFixed(2)}" y2="${(ln.y2-oy).toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
       }
       let svgPad = 4, svgTh = 14, svgBoxH = svgTh + svgPad * 2;
       for (let ln of lines) {
-        let cx2 = (ln.x1 + ln.x2) / 2;
-        let cy2 = (ln.y1 + ln.y2) / 2;
+        let cx2 = (ln.x1 + ln.x2) / 2 - ox;
+        let cy2 = (ln.y1 + ln.y2) / 2 - oy;
         let pxL = nf(ln.imgLen, 1, 1) + ' px';
         let hasU = pixelsPerUnit > 0 && ln !== calibrationLine;
         let unitL = hasU ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
@@ -1051,10 +1250,10 @@ function saveOutput() {
         let arcA2 = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
         let span = arcA2.stop - arcA2.start;
         let angleDeg2 = degrees(span);
-        let sx = inter.x + r2 * Math.cos(arcA2.start);
-        let sy = inter.y + r2 * Math.sin(arcA2.start);
-        let ex = inter.x + r2 * Math.cos(arcA2.stop);
-        let ey = inter.y + r2 * Math.sin(arcA2.stop);
+        let sx = inter.x - ox + r2 * Math.cos(arcA2.start);
+        let sy = inter.y - oy + r2 * Math.sin(arcA2.start);
+        let ex = inter.x - ox + r2 * Math.cos(arcA2.stop);
+        let ey = inter.y - oy + r2 * Math.sin(arcA2.stop);
         let largeArc = span > Math.PI ? 1 : 0;
         let c2 = color(al.col || '#ffffff');
         let colStr = `rgb(${floor(red(c2))},${floor(green(c2))},${floor(blue(c2))})`;
@@ -1063,8 +1262,8 @@ function saveOutput() {
         let alabel = nf(angleDeg2, 1, 1) + '\u00b0';
         let ltw = alabel.length * 7;
         let lboxW = ltw + svgPad2 * 2;
-        svgParts.push(`  <rect x="${(al.lx - lboxW/2).toFixed(2)}" y="${(al.ly - svgBoxH2/2).toFixed(2)}" width="${lboxW.toFixed(2)}" height="${svgBoxH2}" rx="3" fill="rgba(0,0,0,0.7)" />`);
-        svgParts.push(`  <text x="${al.lx.toFixed(2)}" y="${al.ly.toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${alabel}</text>`);
+        svgParts.push(`  <rect x="${(al.lx - ox - lboxW/2).toFixed(2)}" y="${(al.ly - oy - svgBoxH2/2).toFixed(2)}" width="${lboxW.toFixed(2)}" height="${svgBoxH2}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+        svgParts.push(`  <text x="${(al.lx - ox).toFixed(2)}" y="${(al.ly - oy).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${alabel}</text>`);
       }
       svgParts.push('</svg>');
       let svgBlob = new Blob([svgParts.join('\n')], { type: 'image/svg+xml' });
@@ -1079,7 +1278,7 @@ function saveOutput() {
       let svgPlain = [];
       svgPlain.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
       for (let ln of lines) {
-        svgPlain.push(`  <line x1="${ln.x1.toFixed(2)}" y1="${ln.y1.toFixed(2)}" x2="${ln.x2.toFixed(2)}" y2="${ln.y2.toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+        svgPlain.push(`  <line x1="${(ln.x1-ox).toFixed(2)}" y1="${(ln.y1-oy).toFixed(2)}" x2="${(ln.x2-ox).toFixed(2)}" y2="${(ln.y2-oy).toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
       }
       for (let al of angleLabels) {
         let inter = lineIntersection(al.line1, al.line2);
@@ -1087,10 +1286,10 @@ function saveOutput() {
         let r2 = dist(inter.x, inter.y, al.lx, al.ly);
         let arcA2 = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
         let span = arcA2.stop - arcA2.start;
-        let sx = inter.x + r2 * Math.cos(arcA2.start);
-        let sy = inter.y + r2 * Math.sin(arcA2.start);
-        let ex = inter.x + r2 * Math.cos(arcA2.stop);
-        let ey = inter.y + r2 * Math.sin(arcA2.stop);
+        let sx = inter.x - ox + r2 * Math.cos(arcA2.start);
+        let sy = inter.y - oy + r2 * Math.sin(arcA2.start);
+        let ex = inter.x - ox + r2 * Math.cos(arcA2.stop);
+        let ey = inter.y - oy + r2 * Math.sin(arcA2.stop);
         let largeArc = span > Math.PI ? 1 : 0;
         let c2 = color(al.col || '#ffffff');
         let colStr = `rgb(${floor(red(c2))},${floor(green(c2))},${floor(blue(c2))})`;
@@ -1125,6 +1324,7 @@ function saveOutput() {
 }
 
 function doUndo() {
+  drawGridMode = false; gridLines = []; hideStatus();
   // Walk back through redoStack (which is our history) from the end
   for (let i = redoStack.length - 1; i >= 0; i--) {
     let entry = redoStack[i];
