@@ -26,7 +26,7 @@ The workflow is simple:
 - Works best with isometric and orthographic drawings, or top/front/side view images of objects
 - Draw and reposition measurement lines over the image
 - Lines display length in pixels; once calibrated, lines show real-world units automatically
-- **Measure angles** between any two lines — an arc is drawn in the sector you choose, with a live degree label you click to place
+- Measure angles between any two lines, and arc and angle label can be placed in any angle sector.
 - Selected angle labels can be clicked and dragged to reposition.
 - Angle arcs and labels update live if the referenced lines are moved.
 - Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly.
