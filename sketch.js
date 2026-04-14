@@ -225,10 +225,16 @@ function setup() {
     let v = parseInt(gridDivCross.value);
     if (v >= 1 && v <= 512) gridDivisionsX = v; else gridDivCross.value = gridDivisionsX;
   });
+  gridDivCross.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.stopPropagation(); gridDivCross.blur(); }
+  });
   let gridDivAlong = document.getElementById('gridDivAlong');
   gridDivAlong.addEventListener('change', () => {
     let v = parseInt(gridDivAlong.value);
     if (v >= 1 && v <= 512) gridDivisionsY = v; else gridDivAlong.value = gridDivisionsY;
+  });
+  gridDivAlong.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.stopPropagation(); gridDivAlong.blur(); }
   });
 
   document.getElementById('showPxLabels').addEventListener('change', function() { showPxLabels = this.checked; });
