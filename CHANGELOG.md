@@ -2,6 +2,30 @@
 
 
 
+## 2026-04-13 v1.3
+
+- Move whole line option added
+- Whole line snap to endpoint option added
+- Multi select with ctrl/alt, group drag and group delete (includes lines and arcs)
+- SVG exports reworked 
+- checkbox toggles for PX lengths, calibrated lengths, and angles
+- some refactoring of get snap points, line length calculation, etc.
+- A key selects all lines and arcs
+
+## 2026-04-13 v1.2.1
+
+
+- reworked undo/redo to include line moves and arc moves, not just line drawing
+- made instructions dialog movable
+- added link-to-arcs mode when ctrl or alt are pressed 
+- added ability to move a whole line, not just it's endpoints.
+
+
+## 2026-04-13 v1.2.1
+
+- reworked and unified user message system to fix competing messages problem where an earlier message might cover on top of a newer one from seperate processes
+- added experimental draw grid feature
+- fixed bug where lines drawn outside an image were cropped out of exports
 
 
 ## 2026-04-13 v1.2
@@ -28,7 +52,7 @@
 - PNG label text is now always white (was using line color)
 
 
-## 2026-04-11
+## 2026-04-11 v1
 
 - Dimension label numbers (px, units, calibration) now draw in white instead of the line's color
 - Sidebar instructions extended and text color brightened

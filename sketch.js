@@ -11,12 +11,25 @@ let currentLineWeight = 2;
 let dragging = false;
 let dragStartX = 0, dragStartY = 0;
 let selectedLine = null;
+let selectedLines = [];
 let mmbPanning = false;
 let mmbLastX = 0, mmbLastY = 0;
 
 const EP_RADIUS = 8;
 let epDragLine = null;
 let epDragIndex = 0;
+let epDragStartX = 0, epDragStartY = 0;
+
+let lineDragLine = null;
+let lineDragMouseStartX = 0, lineDragMouseStartY = 0;
+let lineDragOrigX1 = 0, lineDragOrigY1 = 0, lineDragOrigX2 = 0, lineDragOrigY2 = 0;
+let lineDragGroup = []; // [{line, ox1, oy1, ox2, oy2}] for multi-line drag
+let lineDragGroupArcs = []; // [{arc, olx, oly}] for arcs in group drag
+let snapActivePts = []; // screen-space coords of endpoints currently snapped (shown green)
+
+let arcDragOrigLx = 0, arcDragOrigLy = 0;
+let arcDragMouseStartX = 0, arcDragMouseStartY = 0;
+let arcDragLines = []; // [{line, ox1, oy1, ox2, oy2}] selected lines dragged with arc
 
 let inputText = '';
 let inputFocused = false;
@@ -34,8 +47,12 @@ let drawGridMode = false;
 let gridLines = [];
 let gridDivisionsX = 2; // cross lines (parallel to A/B)
 let gridDivisionsY = 2; // along lines (parallel to connectors)
+let showPxLabels = true;
+let showCalibratedLabels = true;
+let showAngleLabels = true;
 let angleLabels = [];
 let reverseLineActive = false;
+let selectedAngleLabels = [];
 let _angleCkX = 0, _angleCkY = 0, _angleCkS = 0;
 let selectedAngleLabel = null;
 let angleLabelDragging = false;
@@ -73,6 +90,28 @@ function hideStatus() {
   s.style.transition = '';
   s.style.color = '#eee';
   s.style.border = '1px solid #555';
+}
+
+function getSnapPoints() {
+  let pts = [];
+  for (let ln of lines) pts.push({x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2});
+  for (let al of angleLabels) for (let pt of getArcSnapPoints(al)) pts.push(pt);
+  return pts;
+}
+
+function updateLineLen(ln) {
+  ln.imgLen = dist(ln.x1, ln.y1, ln.x2, ln.y2);
+  if (ln === calibrationLine && ln.customValue.length > 0) {
+    let v = parseFloat(ln.customValue);
+    if (v > 0) pixelsPerUnit = ln.imgLen / v;
+  }
+}
+
+function downloadBlob(content, filename, type) {
+  let a = document.createElement('a');
+  a.href = URL.createObjectURL(content instanceof Blob ? content : new Blob([content], { type }));
+  a.download = filename;
+  a.click();
 }
 
 let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn, drawGridBtn;
@@ -121,6 +160,22 @@ function setup() {
     centerImage();
   });
 
+  // Ensure 'A' select-all works even when canvas doesn't have focus
+  document.addEventListener('keydown', function(e) {
+    if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey) {
+      let active = document.activeElement;
+      let isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+      if (!isTyping && !inputFocused && !measureAngleMode && !drawGridMode) {
+        selectedLines = [...lines];
+        selectedAngleLabels = [...angleLabels];
+        selectedLine = selectedLines.length > 0 ? selectedLines[0] : null;
+        selectedAngleLabel = null;
+        inputFocused = false;
+        e.preventDefault();
+      }
+    }
+  });
+
   resetLines = select('#resetLines');
   resetImage = select('#resetImage');
   resetLines.mousePressed(()=> {
@@ -133,8 +188,8 @@ function setup() {
     document.getElementById('resetLinesDialog').style.display = 'none';
     lines = []; redoStack = []; undoStack = [];
     calibrationLine = null; pixelsPerUnit = 0;
-    selectedLine = null; inputFocused = false;
-    angleLabels = []; selectedAngleLabel = null; angleLabelDragging = false;
+    selectedLine = null; selectedLines = []; inputFocused = false;
+    angleLabels = []; selectedAngleLabel = null; selectedAngleLabels = []; angleLabelDragging = false;
   });
   document.getElementById('resetLinesNo').addEventListener('click', ()=> {
     document.getElementById('resetLinesDialog').style.display = 'none';
@@ -159,13 +214,17 @@ function setup() {
   let gridDivCross = document.getElementById('gridDivCross');
   gridDivCross.addEventListener('change', () => {
     let v = parseInt(gridDivCross.value);
-    if (v >= 1 && v <= 64) gridDivisionsX = v; else gridDivCross.value = gridDivisionsX;
+    if (v >= 1 && v <= 512) gridDivisionsX = v; else gridDivCross.value = gridDivisionsX;
   });
   let gridDivAlong = document.getElementById('gridDivAlong');
   gridDivAlong.addEventListener('change', () => {
     let v = parseInt(gridDivAlong.value);
-    if (v >= 1 && v <= 64) gridDivisionsY = v; else gridDivAlong.value = gridDivisionsY;
+    if (v >= 1 && v <= 512) gridDivisionsY = v; else gridDivAlong.value = gridDivisionsY;
   });
+
+  document.getElementById('showPxLabels').addEventListener('change', function() { showPxLabels = this.checked; });
+  document.getElementById('showCalibratedLabels').addEventListener('change', function() { showCalibratedLabels = this.checked; });
+  document.getElementById('showAngleLabels').addEventListener('change', function() { showAngleLabels = this.checked; });
 
   drawGridBtn = select('#drawGridBtn');
   drawGridBtn.mousePressed(() => {
@@ -236,7 +295,7 @@ function handleFileSelect(evt) {
     zoom = 1.0;
     centerImage();
     dragging = false;
-    selectedLine = null;
+    selectedLine = null; selectedLines = [];
     inputFocused = false;
   });
 }
@@ -293,7 +352,7 @@ function draw() {
   let flashOn = floor(millis() / 300) % 2 === 0;
   for (let ln of lines) {
     let drawCol = ln.col;
-    if (ln === selectedLine && !flashOn) drawCol = invertColor(drawCol);
+    if (selectedLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     if (angleLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     if (gridLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     strokeWeight((ln.weight || 1.5) / zoom);
@@ -339,39 +398,38 @@ function draw() {
     }
   }
 
-  if (selectedLine && !measureAngleMode) {
-    let sp1 = toScreenCoords(selectedLine.x1, selectedLine.y1);
-    let sp2 = toScreenCoords(selectedLine.x2, selectedLine.y2);
-    // Black outline ring
-    strokeWeight(3);
-    stroke(0);
-    noFill();
-    ellipse(sp1.x, sp1.y, EP_RADIUS*2, EP_RADIUS*2);
-    ellipse(sp2.x, sp2.y, EP_RADIUS*2, EP_RADIUS*2);
-    // White inner ring
-    strokeWeight(1.5);
-    stroke(255);
-    ellipse(sp1.x, sp1.y, EP_RADIUS*2, EP_RADIUS*2);
-    ellipse(sp2.x, sp2.y, EP_RADIUS*2, EP_RADIUS*2);
-  }
-
-  // CTRL/ALT held: show snap target circles on all line endpoints
-  if ((keyIsDown(CONTROL) || keyIsDown(ALT)) && !measureAngleMode) {
-    for (let ln of lines) {
-      for (let pt of [{x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2}]) {
-        let sp = toScreenCoords(pt.x, pt.y);
-        let hovering = dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS;
-        strokeWeight(3);
-        stroke(0);
-        noFill();
+  if (selectedLines.length > 0 && !measureAngleMode) {
+    for (let sl of selectedLines) {
+      let sp1 = toScreenCoords(sl.x1, sl.y1);
+      let sp2 = toScreenCoords(sl.x2, sl.y2);
+      for (let sp of [sp1, sp2]) {
+        let snapping = snapActivePts.some(p => dist(p.x, p.y, sp.x, sp.y) < 1);
+        strokeWeight(3); stroke(0); noFill();
         ellipse(sp.x, sp.y, EP_RADIUS*2, EP_RADIUS*2);
         strokeWeight(1.5);
-        stroke(hovering ? color(0, 220, 255) : 255);
-        if (hovering) fill(0, 220, 255, 60);
-        else noFill();
+        stroke(snapping ? color(0, 220, 80) : 255);
+        if (snapping) fill(0, 220, 80, 60); else noFill();
         ellipse(sp.x, sp.y, EP_RADIUS*2, EP_RADIUS*2);
         noFill();
       }
+    }
+  }
+
+  // CTRL/ALT held: show snap target circles on all line and arc endpoints
+  if ((keyIsDown(CONTROL) || keyIsDown(ALT)) && !measureAngleMode) {
+    for (let pt of getSnapPoints()) {
+      let sp = toScreenCoords(pt.x, pt.y);
+      let hovering = dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS;
+      strokeWeight(3);
+      stroke(0);
+      noFill();
+      ellipse(sp.x, sp.y, EP_RADIUS*2, EP_RADIUS*2);
+      strokeWeight(1.5);
+      stroke(hovering ? color(0, 220, 255) : 255);
+      if (hovering) fill(0, 220, 255, 60);
+      else noFill();
+      ellipse(sp.x, sp.y, EP_RADIUS*2, EP_RADIUS*2);
+      noFill();
     }
   }
 
@@ -403,14 +461,14 @@ function draw() {
     let r = dist(sp.x, sp.y, slabel.x, slabel.y);
     let arcA = getSectorArcAngles(sp, al.line1, al.line2, slabel.x, slabel.y);
     let angleDeg = degrees(arcA.stop - arcA.start);
-    let isSelected = al === selectedAngleLabel;
+    let isSelected = al === selectedAngleLabel || selectedAngleLabels.includes(al);
     let c = color(al.col || '#ffffff');
     let arcCol = (isSelected && !flashOn) ? color(255 - red(c), 255 - green(c), 255 - blue(c), 160) : color(red(c), green(c), blue(c), 160);
     noFill();
     strokeWeight(isSelected ? al.weight * 1.5 : al.weight);
     stroke(arcCol);
     arc(sp.x, sp.y, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
-    drawAngleLabel(slabel.x, slabel.y, angleDeg, false);
+    if (showAngleLabels) drawAngleLabel(slabel.x, slabel.y, angleDeg, false);
   }
 
   // Draw live angle preview when two lines are selected
@@ -432,6 +490,7 @@ function draw() {
 }
 
 function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, isCalib) {
+  if (!showPxLabels && !showCalibratedLabels && !selected) return;
   let pxLabel = nf(len, 1, 1) + ' px';
   let cx = (x1 + x2) / 2;
   let cy = (y1 + y2) / 2;
@@ -445,15 +504,17 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
 
   let hasValue = customValue && customValue.length > 0;
   let showUnits = !isCalib && pixelsPerUnit > 0;
-  let hasSecondBox = selected || hasValue || showUnits;
+  let hasSecondBox = selected || (showCalibratedLabels && (hasValue || showUnits));
 
   let labelOffsetY = hasSecondBox ? -(boxH + 4)/2 : 0;
 
-  noStroke();
-  fill(0, 180);
-  rect(cx - tw/2 - pad, cy + labelOffsetY - boxH/2, tw + pad*2, boxH, 3);
-  fill(255);
-  text(pxLabel, cx, cy + labelOffsetY);
+  if (showPxLabels || selected) {
+    noStroke();
+    fill(0, 180);
+    rect(cx - tw/2 - pad, cy + labelOffsetY - boxH/2, tw + pad*2, boxH, 3);
+    fill(255);
+    text(pxLabel, cx, cy + labelOffsetY);
+  }
 
   let inW = max(80, tw + pad*2);
   let inH = boxH;
@@ -488,6 +549,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     textSize(12);
 
   } else if (isCalib && hasValue) {
+    if (!showCalibratedLabels) return;
     noStroke();
     fill(0,180);
     rect(inX, inY, inW, inH, 3);
@@ -501,6 +563,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     text(customValue + ' units', inX + inW/2, inY + inH/2);
 
   } else if (showUnits) {
+    if (!showCalibratedLabels) return;
     let unitLen = len / pixelsPerUnit;
     let unitLabel = nf(unitLen, 1, 2) + ' units';
     let uw = max(inW, textWidth(unitLabel) + pad*2);
@@ -635,6 +698,17 @@ function getSectorArcAngles(inter_sp, ln1, ln2, mx, my) {
   return { start, stop };
 }
 
+function getArcSnapPoints(al) {
+  let inter = lineIntersection(al.line1, al.line2);
+  if (!inter) return [];
+  let r = dist(inter.x, inter.y, al.lx, al.ly);
+  let arcA = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
+  return [
+    { x: inter.x + r * Math.cos(arcA.start), y: inter.y + r * Math.sin(arcA.start) },
+    { x: inter.x + r * Math.cos(arcA.stop),  y: inter.y + r * Math.sin(arcA.stop)  }
+  ];
+}
+
 function getSectorArcAnglesImg(inter_img, ln1, ln2, mx, my) {
   let ang1 = atan2(ln1.y2 - ln1.y1, ln1.x2 - ln1.x1);
   let ang2 = atan2(ln2.y2 - ln2.y1, ln2.x2 - ln2.x1);
@@ -670,15 +744,17 @@ function drawAngleLabelsOnGraphics(g, ox, oy) {
     g.stroke(red(c), green(c), blue(c), 160);
     g.strokeWeight(al.weight || 1.5);
     g.arc(ix, iy, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
-    // label box
-    let label = nf(angleDeg, 1, 1) + '\u00b0';
-    let tw = g.textWidth(label);
-    let boxW = tw + pad * 2;
-    g.noStroke();
-    g.fill(0, 180);
-    g.rect(lx - boxW / 2, ly - boxH / 2, boxW, boxH, 3);
-    g.fill(255);
-    g.text(label, lx, ly);
+    if (showAngleLabels) {
+      // label box
+      let label = nf(angleDeg, 1, 1) + '\u00b0';
+      let tw = g.textWidth(label);
+      let boxW = tw + pad * 2;
+      g.noStroke();
+      g.fill(0, 180);
+      g.rect(lx - boxW / 2, ly - boxH / 2, boxW, boxH, 3);
+      g.fill(255);
+      g.text(label, lx, ly);
+    }
   }
 }
 
@@ -697,6 +773,7 @@ function pointToSegDist(px, py, ax, ay, bx, by) {
 
 function mousePressed(event) {
   if (!event || event.target.tagName !== 'CANVAS') return;
+  let ctrlAlt = keyIsDown(CONTROL) || keyIsDown(ALT);
   if (mouseButton === CENTER) {
     mmbPanning = true;
     mmbLastX = mouseX;
@@ -711,10 +788,12 @@ function mousePressed(event) {
         let sp1 = toScreenCoords(gl.x1, gl.y1);
         let sp2 = toScreenCoords(gl.x2, gl.y2);
         if (dist(mouseX, mouseY, sp1.x, sp1.y) <= EP_RADIUS) {
-          epDragLine = gl; epDragIndex = 1; return;
+          epDragLine = gl; epDragIndex = 1;
+          epDragStartX = gl.x1; epDragStartY = gl.y1; return;
         }
         if (dist(mouseX, mouseY, sp2.x, sp2.y) <= EP_RADIUS) {
-          epDragLine = gl; epDragIndex = 2; return;
+          epDragLine = gl; epDragIndex = 2;
+          epDragStartX = gl.x2; epDragStartY = gl.y2; return;
         }
       }
     }
@@ -799,8 +878,43 @@ function mousePressed(event) {
         : mouseAng >= arcA.start && mouseAng <= arcA.stop;
       let hitArc = abs(mouseR - r) < arcHitThresh && inArcAngle;
       if (hitBox || hitArc) {
+        // Don't select if click is on one of the arc's endpoints
+        let arcEndpts = getArcSnapPoints(al);
+        let onEndpoint = arcEndpts.some(pt => {
+          let ep = toScreenCoords(pt.x, pt.y);
+          return dist(mouseX, mouseY, ep.x, ep.y) <= EP_RADIUS;
+        });
+        if (onEndpoint) continue;
+        if (ctrlAlt) {
+          // Ctrl/Alt + click arc = toggle it in multi-selection
+          let idx = selectedAngleLabels.indexOf(al);
+          if (idx >= 0) selectedAngleLabels.splice(idx, 1);
+          else selectedAngleLabels.push(al);
+          selectedAngleLabel = null;
+          return;
+        }
+        // If this arc is already in the multi-selection, start drag without clearing the group
+        let inArcMultiSelection = selectedAngleLabels.includes(al);
+        if (inArcMultiSelection) {
+          angleLabelDragging = true;
+          arcDragOrigLx = al.lx; arcDragOrigLy = al.ly;
+          let _aic0 = toImgCoords(mouseX, mouseY);
+          arcDragMouseStartX = _aic0.x; arcDragMouseStartY = _aic0.y;
+          arcDragLines = selectedLines.map(ln => ({ line: ln, ox1: ln.x1, oy1: ln.y1, ox2: ln.x2, oy2: ln.y2 }));
+          selectedAngleLabel = al;
+          return;
+        }
+        // Plain click on arc — store lines BEFORE clearing, then switch to arc-only selection
+        let _prevLines = [...selectedLines];
         selectedAngleLabel = al;
+        selectedAngleLabels = [];
+        selectedLine = null;
+        selectedLines = [];
         angleLabelDragging = true;
+        arcDragOrigLx = al.lx; arcDragOrigLy = al.ly;
+        let _aic = toImgCoords(mouseX, mouseY);
+        arcDragMouseStartX = _aic.x; arcDragMouseStartY = _aic.y;
+        arcDragLines = [];
         return;
       }
     }
@@ -817,26 +931,34 @@ function mousePressed(event) {
       inputFocused = true;
       return;
     }
-    let sp1 = toScreenCoords(selectedLine.x1, selectedLine.y1);
-    let sp2 = toScreenCoords(selectedLine.x2, selectedLine.y2);
+  }
+  // Endpoint drag — check all selected lines so multi-select stays intact
+  // (skip if Ctrl/Alt held — that means draw a new line snapped from this endpoint)
+  if (!ctrlAlt) {
+  for (let sl of selectedLines) {
+    let sp1 = toScreenCoords(sl.x1, sl.y1);
+    let sp2 = toScreenCoords(sl.x2, sl.y2);
     if (dist(mouseX, mouseY, sp1.x, sp1.y) <= EP_RADIUS) {
-      epDragLine = selectedLine; epDragIndex = 1; return;
+      epDragLine = sl; epDragIndex = 1;
+      epDragStartX = sl.x1; epDragStartY = sl.y1; return;
     }
     if (dist(mouseX, mouseY, sp2.x, sp2.y) <= EP_RADIUS) {
-      epDragLine = selectedLine; epDragIndex = 2; return;
+      epDragLine = sl; epDragIndex = 2;
+      epDragStartX = sl.x2; epDragStartY = sl.y2; return;
     }
   }
+  } // end !ctrlAlt
 
-  let nearEndpoint = false;
-  for (let ln of lines) {
-    let sp1 = toScreenCoords(ln.x1, ln.y1);
-    let sp2 = toScreenCoords(ln.x2, ln.y2);
-    if (dist(mouseX, mouseY, sp1.x, sp1.y) <= EP_RADIUS ||
-        dist(mouseX, mouseY, sp2.x, sp2.y) <= EP_RADIUS) {
-      nearEndpoint = true; break;
-    }
-  }
+  let epCheckPts = [];
+  for (let ln of lines) epCheckPts.push({x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2});
+  if (ctrlAlt) for (let al of angleLabels) for (let pt of getArcSnapPoints(al)) epCheckPts.push(pt);
+  let nearEndpoint = epCheckPts.some(pt => {
+    let sp = toScreenCoords(pt.x, pt.y);
+    return dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS;
+  });
 
+  // Enter line-body hit detection if not near an endpoint.
+  // When ctrlAlt is held and we ARE near an endpoint, skip (fall through to draw new line).
   if (!nearEndpoint) {
     let hit = null;
     let hitThresh = 8;
@@ -848,51 +970,140 @@ function mousePressed(event) {
       }
     }
     if (hit) {
-      if (hit === selectedLine) {
-        selectedLine = null; inputFocused = false;
-      } else {
-        selectedLine = hit;
-        inputText = hit.customValue || '';
-        inputFocused = true;
-        justSelected = true;
-        if (reverseLineActive) {
-          let tmp;
-          tmp = hit.x1; hit.x1 = hit.x2; hit.x2 = tmp;
-          tmp = hit.y1; hit.y1 = hit.y2; hit.y2 = tmp;
-          reverseLineActive = false;
-        }
+      if (ctrlAlt) {
+        // Ctrl/Alt + click = toggle this line in the multi-selection
+        let idx = selectedLines.indexOf(hit);
+        if (idx >= 0) selectedLines.splice(idx, 1);
+        else selectedLines.push(hit);
+        selectedLine = null;
+        inputFocused = false;
+        return;
       }
+      let inMultiSelection = selectedLines.includes(hit) && (selectedLines.length > 1 || selectedAngleLabels.length > 0 || selectedAngleLabel !== null);
+      if (!inMultiSelection) {
+        // Normal single-select — clear any arc selection first
+        selectedAngleLabel = null;
+        selectedAngleLabels = [];
+        if (hit !== selectedLine) {
+          selectedLine = hit;
+          inputText = hit.customValue || '';
+          inputFocused = true;
+          justSelected = true;
+          if (reverseLineActive) {
+            let tmp;
+            tmp = hit.x1; hit.x1 = hit.x2; hit.x2 = tmp;
+            tmp = hit.y1; hit.y1 = hit.y2; hit.y2 = tmp;
+            reverseLineActive = false;
+          }
+        }
+        selectedLines = [hit];
+      }
+      // Start whole-line drag (single or grouped)
+      let ic = toImgCoords(mouseX, mouseY);
+      lineDragLine = hit;
+      lineDragMouseStartX = ic.x; lineDragMouseStartY = ic.y;
+      lineDragOrigX1 = hit.x1; lineDragOrigY1 = hit.y1;
+      lineDragOrigX2 = hit.x2; lineDragOrigY2 = hit.y2;
+      lineDragGroup = selectedLines.length > 1
+        ? selectedLines.map(ln => ({ line: ln, ox1: ln.x1, oy1: ln.y1, ox2: ln.x2, oy2: ln.y2 }))
+        : [];
+      // Include arc labels in the group drag: only explicitly selected arcs move
+      // (covers both single-select via selectedAngleLabel and multi-select via selectedAngleLabels)
+      const allSelectedArcs = selectedAngleLabel
+        ? [selectedAngleLabel, ...selectedAngleLabels.filter(al => al !== selectedAngleLabel)]
+        : selectedAngleLabels;
+      lineDragGroupArcs = allSelectedArcs.map(al => ({ arc: al, olx: al.lx, oly: al.ly }));
       dragging = false;
       return;
     }
   }
 
   selectedLine = null;
-  selectedAngleLabel = null;
+  selectedAngleLabel = null; selectedAngleLabels = [];
+  selectedLines = [];
   inputFocused = false;
   dragging = true;
   dragStartX = mouseX;
   dragStartY = mouseY;
-  // CTRL/ALT held: snap start to a nearby endpoint
-  if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
-    for (let ln of lines) {
-      let sp1 = toScreenCoords(ln.x1, ln.y1);
-      let sp2 = toScreenCoords(ln.x2, ln.y2);
-      if (dist(mouseX, mouseY, sp1.x, sp1.y) <= EP_RADIUS) {
-        dragStartX = sp1.x; dragStartY = sp1.y; break;
-      }
-      if (dist(mouseX, mouseY, sp2.x, sp2.y) <= EP_RADIUS) {
-        dragStartX = sp2.x; dragStartY = sp2.y; break;
+  // CTRL/ALT held: snap start to a nearby line or arc endpoint
+  if (ctrlAlt) {
+    for (let pt of getSnapPoints()) {
+      let sp = toScreenCoords(pt.x, pt.y);
+      if (dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS) {
+        dragStartX = sp.x; dragStartY = sp.y; break;
       }
     }
   }
 }
 
 function mouseDragged() {
+  if (lineDragLine) {
+    let ic = toImgCoords(mouseX, mouseY);
+    let dx = ic.x - lineDragMouseStartX;
+    let dy = ic.y - lineDragMouseStartY;
+
+    // Ctrl/Alt held: snap nearest endpoint of any dragged line to a non-dragged endpoint
+    snapActivePts = [];
+    if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
+      const draggedSet = new Set(lineDragGroup.length > 0 ? lineDragGroup.map(g => g.line) : [lineDragLine]);
+      const candidates = lineDragGroup.length > 0
+        ? lineDragGroup.flatMap(g => [
+            { ox: g.ox1, oy: g.oy1 }, { ox: g.ox2, oy: g.oy2 }
+          ])
+        : [{ ox: lineDragOrigX1, oy: lineDragOrigY1 }, { ox: lineDragOrigX2, oy: lineDragOrigY2 }];
+      let bestDist = EP_RADIUS;
+      let bestDx = null, bestDy = null;
+      let bestCandSP = null, bestTargetSP = null;
+      for (let ln of lines) {
+        if (draggedSet.has(ln)) continue;
+        for (let pt of [{x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2}]) {
+          let sp = toScreenCoords(pt.x, pt.y);
+          for (let cand of candidates) {
+            let candSP = toScreenCoords(cand.ox + dx, cand.oy + dy);
+            let d = dist(candSP.x, candSP.y, sp.x, sp.y);
+            if (d < bestDist) {
+              bestDist = d;
+              let candImg = toImgCoords(candSP.x, candSP.y);
+              bestDx = dx + (pt.x - candImg.x);
+              bestDy = dy + (pt.y - candImg.y);
+              bestCandSP = candSP;
+              bestTargetSP = sp;
+            }
+          }
+        }
+      }
+      if (bestDx !== null) {
+        dx = bestDx; dy = bestDy;
+        snapActivePts = [bestCandSP, bestTargetSP];
+      }
+    }
+
+    if (lineDragGroup.length > 0) {
+      for (let g of lineDragGroup) {
+        g.line.x1 = g.ox1 + dx; g.line.y1 = g.oy1 + dy;
+        g.line.x2 = g.ox2 + dx; g.line.y2 = g.oy2 + dy;
+      }
+    } else {
+      lineDragLine.x1 = lineDragOrigX1 + dx;
+      lineDragLine.y1 = lineDragOrigY1 + dy;
+      lineDragLine.x2 = lineDragOrigX2 + dx;
+      lineDragLine.y2 = lineDragOrigY2 + dy;
+    }
+    for (let g of lineDragGroupArcs) {
+      g.arc.lx = g.olx + dx; g.arc.ly = g.oly + dy;
+    }
+    return;
+  }
   if (angleLabelDragging && selectedAngleLabel) {
     let ic = toImgCoords(mouseX, mouseY);
-    selectedAngleLabel.lx = ic.x;
-    selectedAngleLabel.ly = ic.y;
+    let dx = ic.x - arcDragMouseStartX;
+    let dy = ic.y - arcDragMouseStartY;
+    selectedAngleLabel.lx = arcDragOrigLx + dx;
+    selectedAngleLabel.ly = arcDragOrigLy + dy;
+    for (let g of arcDragLines) {
+      g.line.x1 = g.ox1 + dx; g.line.y1 = g.oy1 + dy;
+      g.line.x2 = g.ox2 + dx; g.line.y2 = g.oy2 + dy;
+    }
     return;
   }
   if (mmbPanning) {
@@ -909,12 +1120,10 @@ function mouseDragged() {
     let ic = toImgCoords(mouseX, mouseY);
     let ix = ic.x, iy = ic.y;
     if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
-      for (let ln of lines) {
-        for (let pt of [{x: ln.x1, y: ln.y1}, {x: ln.x2, y: ln.y2}]) {
-          let sp = toScreenCoords(pt.x, pt.y);
-          if (dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS) {
-            ix = pt.x; iy = pt.y; break;
-          }
+      for (let pt of getSnapPoints()) {
+        let sp = toScreenCoords(pt.x, pt.y);
+        if (dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS) {
+          ix = pt.x; iy = pt.y; break;
         }
       }
     }
@@ -928,18 +1137,82 @@ function mouseDragged() {
     }
     if (epDragIndex === 1) { epDragLine.x1 = ix; epDragLine.y1 = iy; }
     else { epDragLine.x2 = ix; epDragLine.y2 = iy; }
-    epDragLine.imgLen = dist(epDragLine.x1, epDragLine.y1, epDragLine.x2, epDragLine.y2);
-    if (epDragLine === calibrationLine && epDragLine.customValue.length > 0) {
-      let unitVal = parseFloat(epDragLine.customValue);
-      if (unitVal > 0) pixelsPerUnit = epDragLine.imgLen / unitVal;
-    }
+    updateLineLen(epDragLine);
   }
 }
 
 function mouseReleased() {
-  angleLabelDragging = false;
+  if (angleLabelDragging && selectedAngleLabel) {
+    let moved = Math.abs(selectedAngleLabel.lx - arcDragOrigLx) > 0.001 || Math.abs(selectedAngleLabel.ly - arcDragOrigLy) > 0.001;
+    if (moved) {
+      let lineMoves = arcDragLines
+        .filter(g => Math.abs(g.line.x1 - g.ox1) > 0.001 || Math.abs(g.line.y1 - g.oy1) > 0.001)
+        .map(g => ({ line: g.line, ox1: g.ox1, oy1: g.oy1, ox2: g.ox2, oy2: g.oy2,
+                     nx1: g.line.x1, ny1: g.line.y1, nx2: g.line.x2, ny2: g.line.y2 }));
+      if (lineMoves.length > 0) {
+        redoStack.push({ type: 'groupmove', items: lineMoves,
+          arcItems: [{ arc: selectedAngleLabel, olx: arcDragOrigLx, oly: arcDragOrigLy,
+                       nlx: selectedAngleLabel.lx, nly: selectedAngleLabel.ly }] });
+      } else {
+        redoStack.push({ type: 'arcmove', item: selectedAngleLabel,
+                         olx: arcDragOrigLx, oly: arcDragOrigLy,
+                         nlx: selectedAngleLabel.lx, nly: selectedAngleLabel.ly });
+      }
+      undoStack = [];
+    }
+  }
+  angleLabelDragging = false; arcDragLines = [];
   if (mmbPanning) { mmbPanning = false; return; }
-  if (epDragLine) { epDragLine = null; return; }
+  if (lineDragLine) {
+    if (lineDragGroup.length > 0) {
+      let moves = lineDragGroup
+        .filter(g => Math.abs(g.line.x1 - g.ox1) > 0.001 || Math.abs(g.line.y1 - g.oy1) > 0.001)
+        .map(g => ({ line: g.line, ox1: g.ox1, oy1: g.oy1, ox2: g.ox2, oy2: g.oy2,
+                     nx1: g.line.x1, ny1: g.line.y1, nx2: g.line.x2, ny2: g.line.y2 }));
+      let arcMoves = lineDragGroupArcs
+        .filter(g => Math.abs(g.arc.lx - g.olx) > 0.001 || Math.abs(g.arc.ly - g.oly) > 0.001)
+        .map(g => ({ arc: g.arc, olx: g.olx, oly: g.oly, nlx: g.arc.lx, nly: g.arc.ly }));
+      if (moves.length > 0 || arcMoves.length > 0) {
+        redoStack.push({ type: 'groupmove', items: moves, arcItems: arcMoves });
+        undoStack = [];
+      }
+      lineDragGroup = []; lineDragGroupArcs = [];
+    } else {
+      let moved = Math.abs(lineDragLine.x1 - lineDragOrigX1) > 0.001 || Math.abs(lineDragLine.y1 - lineDragOrigY1) > 0.001;
+      if (moved) {
+        let arcMoves = lineDragGroupArcs
+          .filter(g => Math.abs(g.arc.lx - g.olx) > 0.001 || Math.abs(g.arc.ly - g.oly) > 0.001)
+          .map(g => ({ arc: g.arc, olx: g.olx, oly: g.oly, nlx: g.arc.lx, nly: g.arc.ly }));
+        if (arcMoves.length > 0) {
+          // Use groupmove so arc positions are also undoable
+          redoStack.push({ type: 'groupmove',
+            items: [{ line: lineDragLine, ox1: lineDragOrigX1, oy1: lineDragOrigY1,
+                      ox2: lineDragOrigX2, oy2: lineDragOrigY2,
+                      nx1: lineDragLine.x1, ny1: lineDragLine.y1,
+                      nx2: lineDragLine.x2, ny2: lineDragLine.y2 }],
+            arcItems: arcMoves });
+        } else {
+          redoStack.push({ type: 'linemove', item: lineDragLine,
+                           ox1: lineDragOrigX1, oy1: lineDragOrigY1,
+                           ox2: lineDragOrigX2, oy2: lineDragOrigY2,
+                           nx1: lineDragLine.x1, ny1: lineDragLine.y1,
+                           nx2: lineDragLine.x2, ny2: lineDragLine.y2 });
+        }
+        undoStack = [];
+      }
+    }
+    lineDragLine = null; lineDragGroupArcs = []; snapActivePts = []; return;
+  }
+  if (epDragLine) {
+    let nx = epDragIndex === 1 ? epDragLine.x1 : epDragLine.x2;
+    let ny = epDragIndex === 1 ? epDragLine.y1 : epDragLine.y2;
+    if (Math.abs(nx - epDragStartX) > 0.001 || Math.abs(ny - epDragStartY) > 0.001) {
+      redoStack.push({ type: 'move', item: epDragLine, index: epDragIndex,
+                       ox: epDragStartX, oy: epDragStartY, nx, ny });
+      undoStack = [];
+    }
+    epDragLine = null; return;
+  }
   if (dragging) {
     let ic1 = toImgCoords(dragStartX, dragStartY);
     let ic2raw = toImgCoords(mouseX, mouseY);
@@ -947,14 +1220,10 @@ function mouseReleased() {
     let ix1 = ic1.x, iy1 = ic1.y;
     let ix2 = ic2.x, iy2 = ic2.y;
     if (keyIsDown(CONTROL) || keyIsDown(ALT)) {
-      for (let ln of lines) {
-        let sp1 = toScreenCoords(ln.x1, ln.y1);
-        let sp2 = toScreenCoords(ln.x2, ln.y2);
-        if (dist(mouseX, mouseY, sp1.x, sp1.y) <= EP_RADIUS) {
-          ix2 = ln.x1; iy2 = ln.y1; break;
-        }
-        if (dist(mouseX, mouseY, sp2.x, sp2.y) <= EP_RADIUS) {
-          ix2 = ln.x2; iy2 = ln.y2; break;
+      for (let pt of getSnapPoints()) {
+        let sp = toScreenCoords(pt.x, pt.y);
+        if (dist(mouseX, mouseY, sp.x, sp.y) <= EP_RADIUS) {
+          ix2 = pt.x; iy2 = pt.y; break;
         }
       }
     }
@@ -981,6 +1250,15 @@ function mouseWheel(event) {
 }
 
 function keyPressed() {
+  if ((key === 'a' || key === 'A') && !inputFocused && !measureAngleMode && !drawGridMode) {
+    selectedLines = [...lines];
+    selectedAngleLabels = [...angleLabels];
+    selectedLine = selectedLines.length > 0 ? selectedLines[0] : null;
+    selectedAngleLabel = null;
+    inputFocused = false;
+    return false;
+  }
+
   if (angleLines.length >= 2 && keyCode === ENTER) {
     confirmAngle(mouseX, mouseY);
     return;
@@ -1023,16 +1301,26 @@ function keyPressed() {
     return;
   }
 
-  if (keyCode === DELETE && selectedLine) {
-    if (selectedLine === calibrationLine) {
-      calibrationLine = null; pixelsPerUnit = 0;
+  if (keyCode === DELETE && selectedLines.length > 0) {
+    const deletedSet = new Set(selectedLines);
+    for (let deleted of selectedLines) {
+      if (deleted === calibrationLine) { calibrationLine = null; pixelsPerUnit = 0; }
+      lines = lines.filter(l => l !== deleted);
+      angleLabels = angleLabels.filter(al => al.line1 !== deleted && al.line2 !== deleted);
     }
-    let deleted = selectedLine;
-    lines = lines.filter(l => l !== deleted);
-    angleLabels = angleLabels.filter(al => al.line1 !== deleted && al.line2 !== deleted);
-    redoStack = redoStack.filter(e => e.item !== deleted && e.item.line1 !== deleted && e.item.line2 !== deleted);
-    undoStack = undoStack.filter(e => e.item !== deleted && e.item.line1 !== deleted && e.item.line2 !== deleted);
-    selectedLine = null; inputFocused = false;
+    redoStack = redoStack.filter(e => {
+      if (e.item && deletedSet.has(e.item)) return false;
+      if (e.item && (deletedSet.has(e.item.line1) || deletedSet.has(e.item.line2))) return false;
+      if (e.items && e.items.some(i => deletedSet.has(i.line))) return false;
+      return true;
+    });
+    undoStack = undoStack.filter(e => {
+      if (e.item && deletedSet.has(e.item)) return false;
+      if (e.item && (deletedSet.has(e.item.line1) || deletedSet.has(e.item.line2))) return false;
+      if (e.items && e.items.some(i => deletedSet.has(i.line))) return false;
+      return true;
+    });
+    selectedLine = null; selectedLines = []; inputFocused = false;
     return;
   }
 
@@ -1080,6 +1368,7 @@ function snapEndpoint(ix1, iy1, ix2, iy2) {
 }
 
 function drawLabelsOnGraphics(g, ox, oy) {
+  if (!showPxLabels && !showCalibratedLabels) return;
   ox = ox || 0; oy = oy || 0;
   g.textFont('Arial');
   g.textSize(12);
@@ -1091,23 +1380,26 @@ function drawLabelsOnGraphics(g, ox, oy) {
     let cy = (ln.y1 + ln.y2) / 2 - oy;
     let pxLabel = nf(ln.imgLen, 1, 1) + ' px';
     let hasUnits = pixelsPerUnit > 0 && ln !== calibrationLine;
-    let unitLabel = hasUnits ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
+    let unitLabel = (showCalibratedLabels && hasUnits) ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
     let isCalib = ln === calibrationLine && ln.customValue.length > 0;
-    let calibLabel = isCalib ? (ln.customValue + ' units') : null;
-    let hasSecond = hasUnits || isCalib;
+    let calibLabel = (showCalibratedLabels && isCalib) ? (ln.customValue + ' units') : null;
+    let hasSecond = unitLabel || calibLabel;
     let offsetY = hasSecond ? -(boxH + 4) / 2 : 0;
 
-    // px label
-    g.textAlign(CENTER, CENTER);
-    let tw = g.textWidth(pxLabel);
-    g.noStroke();
-    g.fill(0, 180);
-    g.rect(cx - tw / 2 - pad, cy + offsetY - boxH / 2, tw + pad * 2, boxH, 3);
-    g.fill(255);
-    g.text(pxLabel, cx, cy + offsetY);
+    if (showPxLabels) {
+      // px label
+      g.textAlign(CENTER, CENTER);
+      let tw = g.textWidth(pxLabel);
+      g.noStroke();
+      g.fill(0, 180);
+      g.rect(cx - tw / 2 - pad, cy + offsetY - boxH / 2, tw + pad * 2, boxH, 3);
+      g.fill(255);
+      g.text(pxLabel, cx, cy + offsetY);
+    }
 
     // second label
     if (unitLabel) {
+      let tw = g.textWidth(pxLabel);
       let uw = max(tw + pad * 2, g.textWidth(unitLabel) + pad * 2);
       g.noStroke();
       g.fill(0, 180);
@@ -1115,6 +1407,7 @@ function drawLabelsOnGraphics(g, ox, oy) {
       g.fill(255);
       g.text(unitLabel, cx, cy + boxH / 2 + 4 + boxH / 2);
     } else if (calibLabel) {
+      let tw = g.textWidth(pxLabel);
       let cw = max(tw + pad * 2, g.textWidth(calibLabel) + pad * 2);
       g.noStroke();
       g.fill(0, 180);
@@ -1141,8 +1434,8 @@ function saveOutput() {
     modal.classList.remove('open');
     const doPngComposite = document.getElementById('ckPngComposite').checked;
     const doPngLines    = document.getElementById('ckPngLines').checked;
-    const doSvgLabels   = document.getElementById('ckSvgLabels').checked;
-    const doSvgOnly     = document.getElementById('ckSvgOnly').checked;
+    const doSvgImage    = document.getElementById('ckSvgImage').checked;
+    const doSvgLines    = document.getElementById('ckSvgLines').checked;
     const doCsv         = document.getElementById('ckCsv').checked;
 
     const PAD = 40;
@@ -1182,12 +1475,7 @@ function saveOutput() {
       drawIntoG(g1, true);
       drawLabelsOnGraphics(g1, ox, oy);
       drawAngleLabelsOnGraphics(g1, ox, oy);
-      g1.canvas.toBlob(blob => {
-        let a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'image_with_lines_and_labels.png';
-        a.click();
-      });
+      g1.canvas.toBlob(blob => downloadBlob(blob, 'image_with_lines_and_labels.png'));
       g1.remove();
     }
 
@@ -1197,52 +1485,46 @@ function saveOutput() {
       drawIntoG(g2, false);
       drawLabelsOnGraphics(g2, ox, oy);
       drawAngleLabelsOnGraphics(g2, ox, oy);
-      g2.canvas.toBlob(blob => {
-        let a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'lines_and_labels.png';
-        a.click();
-      });
+      g2.canvas.toBlob(blob => downloadBlob(blob, 'lines_and_labels.png'));
       g2.remove();
     }
 
-    // 3. SVG: lines with labels
-    if (doSvgLabels) {
-      let svgParts = [];
-      svgParts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+    // 3 & 4. SVG exports (shared builder)
+    if (doSvgImage || doSvgLines) {
+      // Build the vector content (lines + arcs + labels based on toggles)
+      let svgContent = [];
       for (let ln of lines) {
-        svgParts.push(`  <line x1="${(ln.x1-ox).toFixed(2)}" y1="${(ln.y1-oy).toFixed(2)}" x2="${(ln.x2-ox).toFixed(2)}" y2="${(ln.y2-oy).toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+        svgContent.push(`  <line x1="${(ln.x1-ox).toFixed(2)}" y1="${(ln.y1-oy).toFixed(2)}" x2="${(ln.x2-ox).toFixed(2)}" y2="${(ln.y2-oy).toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
       }
       let svgPad = 4, svgTh = 14, svgBoxH = svgTh + svgPad * 2;
-      for (let ln of lines) {
-        let cx2 = (ln.x1 + ln.x2) / 2 - ox;
-        let cy2 = (ln.y1 + ln.y2) / 2 - oy;
-        let pxL = nf(ln.imgLen, 1, 1) + ' px';
-        let hasU = pixelsPerUnit > 0 && ln !== calibrationLine;
-        let unitL = hasU ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
-        let isC = ln === calibrationLine && ln.customValue.length > 0;
-        let calibL = isC ? (ln.customValue + ' units') : null;
-        let hasSec = hasU || isC;
-        let oY = hasSec ? -(svgBoxH + 4) / 2 : 0;
-        let tw2 = pxL.length * 7;
-        svgParts.push(`  <rect x="${(cx2 - tw2/2 - svgPad).toFixed(2)}" y="${(cy2 + oY - svgBoxH/2).toFixed(2)}" width="${(tw2 + svgPad*2).toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
-        svgParts.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + oY).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${pxL}</text>`);
-        if (unitL) {
-          let uw2 = max(tw2 + svgPad*2, unitL.length * 7 + svgPad*2);
-          svgParts.push(`  <rect x="${(cx2 - uw2/2).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4).toFixed(2)}" width="${uw2.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
-          svgParts.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4 + svgBoxH/2).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${unitL}</text>`);
-        } else if (calibL) {
-          let cw2 = max(tw2 + svgPad*2, calibL.length * 7 + svgPad*2);
-          svgParts.push(`  <rect x="${(cx2 - cw2/2).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4).toFixed(2)}" width="${cw2.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
-          svgParts.push(`  <rect x="${(cx2 - cw2/2 - 1).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 3).toFixed(2)}" width="${(cw2 + 2).toFixed(2)}" height="${(svgBoxH + 2)}" rx="3" fill="none" stroke="rgb(255,180,0)" stroke-width="2" />`);
-          svgParts.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4 + svgBoxH/2).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${calibL}</text>`);
+      if (showPxLabels || showCalibratedLabels) {
+        for (let ln of lines) {
+          let cx2 = (ln.x1 + ln.x2) / 2 - ox;
+          let cy2 = (ln.y1 + ln.y2) / 2 - oy;
+          let pxL = nf(ln.imgLen, 1, 1) + ' px';
+          let hasU = pixelsPerUnit > 0 && ln !== calibrationLine;
+          let unitL = (showCalibratedLabels && hasU) ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
+          let isC = ln === calibrationLine && ln.customValue.length > 0;
+          let calibL = (showCalibratedLabels && isC) ? (ln.customValue + ' units') : null;
+          let hasSec = unitL || calibL;
+          let oY = hasSec ? -(svgBoxH + 4) / 2 : 0;
+          let tw2 = pxL.length * 7;
+          if (showPxLabels) {
+            svgContent.push(`  <rect x="${(cx2 - tw2/2 - svgPad).toFixed(2)}" y="${(cy2 + oY - svgBoxH/2).toFixed(2)}" width="${(tw2 + svgPad*2).toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+            svgContent.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + oY).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${pxL}</text>`);
+          }
+          if (unitL) {
+            let uw2 = max(tw2 + svgPad*2, unitL.length * 7 + svgPad*2);
+            svgContent.push(`  <rect x="${(cx2 - uw2/2).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4).toFixed(2)}" width="${uw2.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+            svgContent.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4 + svgBoxH/2).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${unitL}</text>`);
+          } else if (calibL) {
+            let cw2 = max(tw2 + svgPad*2, calibL.length * 7 + svgPad*2);
+            svgContent.push(`  <rect x="${(cx2 - cw2/2).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4).toFixed(2)}" width="${cw2.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+            svgContent.push(`  <rect x="${(cx2 - cw2/2 - 1).toFixed(2)}" y="${(cy2 + svgBoxH/2 + 3).toFixed(2)}" width="${(cw2 + 2).toFixed(2)}" height="${(svgBoxH + 2)}" rx="3" fill="none" stroke="rgb(255,180,0)" stroke-width="2" />`);
+            svgContent.push(`  <text x="${cx2.toFixed(2)}" y="${(cy2 + svgBoxH/2 + 4 + svgBoxH/2).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${calibL}</text>`);
+          }
         }
       }
-      svgParts.push('</svg>');
-      // --- angle arcs and labels ---
-      // re-open by inserting before the closing tag
-      svgParts.pop(); // remove </svg>
-      let svgPad2 = 4, svgTh2 = 14, svgBoxH2 = svgTh2 + svgPad2 * 2;
       for (let al of angleLabels) {
         let inter = lineIntersection(al.line1, al.line2);
         if (!inter) continue;
@@ -1257,50 +1539,32 @@ function saveOutput() {
         let largeArc = span > Math.PI ? 1 : 0;
         let c2 = color(al.col || '#ffffff');
         let colStr = `rgb(${floor(red(c2))},${floor(green(c2))},${floor(blue(c2))})`;
-        svgParts.push(`  <path d="M ${sx.toFixed(2)},${sy.toFixed(2)} A ${r2.toFixed(2)},${r2.toFixed(2)} 0 ${largeArc},1 ${ex.toFixed(2)},${ey.toFixed(2)}" fill="none" stroke="${colStr}" stroke-opacity="0.63" stroke-width="${al.weight || 1.5}" />`);
-        // label box
-        let alabel = nf(angleDeg2, 1, 1) + '\u00b0';
-        let ltw = alabel.length * 7;
-        let lboxW = ltw + svgPad2 * 2;
-        svgParts.push(`  <rect x="${(al.lx - ox - lboxW/2).toFixed(2)}" y="${(al.ly - oy - svgBoxH2/2).toFixed(2)}" width="${lboxW.toFixed(2)}" height="${svgBoxH2}" rx="3" fill="rgba(0,0,0,0.7)" />`);
-        svgParts.push(`  <text x="${(al.lx - ox).toFixed(2)}" y="${(al.ly - oy).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${alabel}</text>`);
+        svgContent.push(`  <path d="M ${sx.toFixed(2)},${sy.toFixed(2)} A ${r2.toFixed(2)},${r2.toFixed(2)} 0 ${largeArc},1 ${ex.toFixed(2)},${ey.toFixed(2)}" fill="none" stroke="${colStr}" stroke-opacity="0.63" stroke-width="${al.weight || 1.5}" />`);
+        if (showAngleLabels) {
+          let alabel = nf(angleDeg2, 1, 1) + '\u00b0';
+          let ltw = alabel.length * 7;
+          let lboxW = ltw + svgPad * 2;
+          svgContent.push(`  <rect x="${(al.lx - ox - lboxW/2).toFixed(2)}" y="${(al.ly - oy - svgBoxH/2).toFixed(2)}" width="${lboxW.toFixed(2)}" height="${svgBoxH}" rx="3" fill="rgba(0,0,0,0.7)" />`);
+          svgContent.push(`  <text x="${(al.lx - ox).toFixed(2)}" y="${(al.ly - oy).toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Arial" font-size="12">${alabel}</text>`);
+        }
       }
-      svgParts.push('</svg>');
-      let svgBlob = new Blob([svgParts.join('\n')], { type: 'image/svg+xml' });
-      let svgA = document.createElement('a');
-      svgA.href = URL.createObjectURL(svgBlob);
-      svgA.download = 'lines_with_labels.svg';
-      svgA.click();
-    }
-
-    // 4. SVG: lines only
-    if (doSvgOnly) {
-      let svgPlain = [];
-      svgPlain.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
-      for (let ln of lines) {
-        svgPlain.push(`  <line x1="${(ln.x1-ox).toFixed(2)}" y1="${(ln.y1-oy).toFixed(2)}" x2="${(ln.x2-ox).toFixed(2)}" y2="${(ln.y2-oy).toFixed(2)}" stroke="${ln.col}" stroke-width="${ln.weight || 1.5}" />`);
+      let svgHeader = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+      // SVG - image + lines
+      if (doSvgImage) {
+        let imgParts = [svgHeader];
+        if (img) {
+          let imgDataUrl = img.canvas.toDataURL('image/png');
+          imgParts.push(`  <image x="${(-ox).toFixed(2)}" y="${(-oy).toFixed(2)}" width="${img.width}" height="${img.height}" href="${imgDataUrl}" />`);
+        }
+        imgParts.push(...svgContent);
+        imgParts.push('</svg>');
+        downloadBlob(imgParts.join('\n'), 'lines_with_image.svg', 'image/svg+xml');
       }
-      for (let al of angleLabels) {
-        let inter = lineIntersection(al.line1, al.line2);
-        if (!inter) continue;
-        let r2 = dist(inter.x, inter.y, al.lx, al.ly);
-        let arcA2 = getSectorArcAnglesImg(inter, al.line1, al.line2, al.lx, al.ly);
-        let span = arcA2.stop - arcA2.start;
-        let sx = inter.x - ox + r2 * Math.cos(arcA2.start);
-        let sy = inter.y - oy + r2 * Math.sin(arcA2.start);
-        let ex = inter.x - ox + r2 * Math.cos(arcA2.stop);
-        let ey = inter.y - oy + r2 * Math.sin(arcA2.stop);
-        let largeArc = span > Math.PI ? 1 : 0;
-        let c2 = color(al.col || '#ffffff');
-        let colStr = `rgb(${floor(red(c2))},${floor(green(c2))},${floor(blue(c2))})`;
-        svgPlain.push(`  <path d="M ${sx.toFixed(2)},${sy.toFixed(2)} A ${r2.toFixed(2)},${r2.toFixed(2)} 0 ${largeArc},1 ${ex.toFixed(2)},${ey.toFixed(2)}" fill="none" stroke="${colStr}" stroke-opacity="0.63" stroke-width="${al.weight || 1.5}" />`);
+      // SVG - lines only
+      if (doSvgLines) {
+        let plainParts = [svgHeader, ...svgContent, '</svg>'];
+        downloadBlob(plainParts.join('\n'), 'lines_only.svg', 'image/svg+xml');
       }
-      svgPlain.push('</svg>');
-      let svgPlainBlob = new Blob([svgPlain.join('\n')], { type: 'image/svg+xml' });
-      let svgPlainA = document.createElement('a');
-      svgPlainA.href = URL.createObjectURL(svgPlainBlob);
-      svgPlainA.download = 'lines_only.svg';
-      svgPlainA.click();
     }
 
     // 5. CSV
@@ -1314,11 +1578,7 @@ function saveOutput() {
         if (hasUnits) row += `,${(ln.imgLen / pixelsPerUnit).toFixed(4)}`;
         rows.push(row);
       }
-      let blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-      let a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'lines.csv';
-      a.click();
+      downloadBlob(rows.join('\n'), 'lines.csv', 'text/csv');
     }
   };
 }
@@ -1331,6 +1591,7 @@ function doUndo() {
     if (entry.type === 'arc' && angleLabels.includes(entry.item)) {
       angleLabels = angleLabels.filter(al => al !== entry.item);
       if (selectedAngleLabel === entry.item) { selectedAngleLabel = null; angleLabelDragging = false; }
+      selectedAngleLabels = selectedAngleLabels.filter(al => al !== entry.item);
       redoStack.splice(i, 1);
       undoStack.push(entry);
       return;
@@ -1340,7 +1601,43 @@ function doUndo() {
       lines = lines.filter(l => l !== removed);
       if (removed === calibrationLine) { calibrationLine = null; pixelsPerUnit = 0; }
       if (removed === selectedLine) { selectedLine = null; inputFocused = false; }
+      selectedLines = selectedLines.filter(l => l !== removed);
       angleLabels = angleLabels.filter(al => al.line1 !== removed && al.line2 !== removed);
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
+    if (entry.type === 'move' && lines.includes(entry.item)) {
+      let ln = entry.item;
+      if (entry.index === 1) { ln.x1 = entry.ox; ln.y1 = entry.oy; }
+      else { ln.x2 = entry.ox; ln.y2 = entry.oy; }
+      updateLineLen(ln);
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
+    if (entry.type === 'linemove' && lines.includes(entry.item)) {
+      let ln = entry.item;
+      ln.x1 = entry.ox1; ln.y1 = entry.oy1;
+      ln.x2 = entry.ox2; ln.y2 = entry.oy2;
+      updateLineLen(ln);
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
+    if (entry.type === 'groupmove') {
+      for (let m of entry.items) {
+        m.line.x1 = m.ox1; m.line.y1 = m.oy1;
+        m.line.x2 = m.ox2; m.line.y2 = m.oy2;
+        updateLineLen(m.line);
+      }
+      for (let m of (entry.arcItems || [])) { m.arc.lx = m.olx; m.arc.ly = m.oly; }
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
+    if (entry.type === 'arcmove' && angleLabels.includes(entry.item)) {
+      entry.item.lx = entry.olx; entry.item.ly = entry.oly;
       redoStack.splice(i, 1);
       undoStack.push(entry);
       return;
@@ -1356,6 +1653,29 @@ function doRedo() {
       redoStack.push(entry);
     } else if (entry.type === 'arc') {
       angleLabels.push(entry.item);
+      redoStack.push(entry);
+    } else if (entry.type === 'move') {
+      let ln = entry.item;
+      if (entry.index === 1) { ln.x1 = entry.nx; ln.y1 = entry.ny; }
+      else { ln.x2 = entry.nx; ln.y2 = entry.ny; }
+      updateLineLen(ln);
+      redoStack.push(entry);
+    } else if (entry.type === 'linemove') {
+      let ln = entry.item;
+      ln.x1 = entry.nx1; ln.y1 = entry.ny1;
+      ln.x2 = entry.nx2; ln.y2 = entry.ny2;
+      updateLineLen(ln);
+      redoStack.push(entry);
+    } else if (entry.type === 'groupmove') {
+      for (let m of entry.items) {
+        m.line.x1 = m.nx1; m.line.y1 = m.ny1;
+        m.line.x2 = m.nx2; m.line.y2 = m.ny2;
+        updateLineLen(m.line);
+      }
+      for (let m of (entry.arcItems || [])) { m.arc.lx = m.nlx; m.arc.ly = m.nly; }
+      redoStack.push(entry);
+    } else if (entry.type === 'arcmove') {
+      entry.item.lx = entry.nlx; entry.item.ly = entry.nly;
       redoStack.push(entry);
     }
   }
@@ -1382,7 +1702,8 @@ function confirmInput() {
     }
   }
   inputFocused = false;
-  selectedLine = null;
+  selectedLine = null; selectedLines = [];
+  selectedAngleLabel = null; selectedAngleLabels = [];
 }
 
 class DrawnLine {

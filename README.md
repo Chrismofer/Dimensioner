@@ -26,20 +26,23 @@ The workflow is simple:
 - Works best with isometric and orthographic drawings, or top/front/side view images of objects
 - Draw and reposition measurement lines over the image
 - Lines display length in pixels; once calibrated, lines show real-world units automatically
+- Multi-select lines and arcs with **Ctrl** or **Alt**. move or delete them as a group
+- press **A** to select everything
 - Measure angles between any two lines: an arc and angle label can be placed in any angle sector.
 - Selected angle labels can be clicked and dragged to reposition.
 - Angle arcs and labels update live if the referenced lines are moved.
 - Draw a grid between two lines with configurable cross and along cell counts
 - Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly.
-- Snap lines to 45° angles and link endpoints to other lines
+- Snap lines to 45° anglesby holding **Shift**
+- hold **Ctrl**/**Alt** while dragging a whole line or group of lines to link lines by endpoints
 - Zoom, pan, and rotate the view
 - Unlimited Undo / Redo
 - Save output options:
-  - **PNG** composite image with lines and labels.
-  - **PNG** lines and labels only on dark background.
-  - **SVG** vector graphic of lines and labels.
-  - **SVG** vector graphic of lines and arcs only
-  - **CSV** spreadsheet of all line coordinates and lengths
+  - **PNG** — composite image with lines and labels
+  - **PNG** — lines and labels only, on a dark background
+  - **SVG** — vector lines and labels (raster image included)
+  - **SVG** — vector lines and labels (no raster image)
+  - **CSV** — spreadsheet of all line coordinates and lengths
 
 
 ## Controls
@@ -50,11 +53,15 @@ The workflow is simple:
 | Snap to 45° angle | Hold **Shift** while drawing |
 | Set line color | Color picker in sidebar |
 | Set line thickness | Thickness input in sidebar |
-| Link lines together | Hold **Ctrl** or **Alt** while drawing or dragging |
+| Link lines by endpoints | Hold **Ctrl** or **Alt** while drawing or dragging |
 | Select / deselect line | Click on or near a line |
+| Add to / remove from selection | Hold **Ctrl** or **Alt**, click a line or arc |
+| Select all | Press **A** |
 | Move endpoint | Select line first, drag endpoint |
+| Move whole line (with snap) | Drag line body; hold **Ctrl**/**Alt** to snap an endpoint to another |
+| Move all selected | Drag any selected line or arc |
 | Set calibration | Select line, type value, press **Enter** or ✓ |
-| Delete selected line or arc | **Delete** key |
+| Delete selected line(s) / arc(s) | **Delete** key |
 | Measure angle | Click **Measure Angle** button, then select two lines |
 | Place angle arc | Move mouse to desired position, click or press **Enter** |
 | Select arc | Click on arc or its label in normal mode |

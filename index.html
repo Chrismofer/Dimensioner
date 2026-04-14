@@ -144,13 +144,21 @@
           <div style="font-size:15px; color:#eee; text-align:center">Number of Cells:</div>
           <div style="display:flex; align-items:center; gap:8px; margin-top:4px">
             <label style="white-space:nowrap">Cross</label>
-            <input id="gridDivCross" type="number" min="1" max="64" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
+            <input id="gridDivCross" type="number" min="1" max="512" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
             <label style="white-space:nowrap">Along</label>
-            <input id="gridDivAlong" type="number" min="1" max="64" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
+            <input id="gridDivAlong" type="number" min="1" max="512" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
           </div>
         </div>
         <div style="margin-top:10px">
           <button id="resetLines" class="btn" style="background:#9e5a5a; color:#fff">Reset Lines</button>
+        </div>
+        <div style="margin-top:8px; font-size:12px; color:#bbb">
+          Line length labels:
+          <div style="display:flex; gap:10px; margin-top:4px">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showPxLabels" checked> px</label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showCalibratedLabels" checked> calibrated</label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showAngleLabels" checked> angles</label>
+          </div>
         </div>
       </div>
 
@@ -208,8 +216,8 @@
     </div>
 
     <!-- Instructions panel -->
-    <div id="instructionsPanel" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2f2f2f; border:1px solid #555; border-radius:8px; padding:20px 24px; max-width:340px; color:#ddd; font-size:13px; line-height:1.6; z-index:60; box-shadow:0 4px 24px rgba(0,0,0,0.6);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div id="instructionsPanel" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2f2f2f; border:1px solid #555; border-radius:8px; padding:20px 24px; max-width:340px; color:#ddd; font-size:13px; line-height:1.6; z-index:60; box-shadow:0 4px 24px rgba(0,0,0,0.6); cursor:move; user-select:none;">
+      <div id="instructionsDragHandle" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <strong style="font-size:15px;">Instructions</strong>
         <span onclick="document.getElementById('instructionsPanel').style.display='none'" style="cursor:pointer; font-size:18px; color:#aaa; line-height:1;">&times;</span>
       </div>
@@ -249,12 +257,12 @@
     <!-- Save modal -->
     <div id="saveModal">
       <div id="saveModalBox">
-        <h3>Save Output</h3>
-        <label><input type="checkbox" id="ckPngComposite" checked> PNG - image + lines + labels</label>
-        <label><input type="checkbox" id="ckPngLines" checked> PNG - lines + labels only</label>
-        <label><input type="checkbox" id="ckSvgLabels" checked> SVG - lines with labels</label>
-        <label><input type="checkbox" id="ckSvgOnly" checked> SVG - lines only</label>
-        <label><input type="checkbox" id="ckCsv" checked> CSV - coordinates &amp; lengths</label>
+        <h3>Save Output</h3><br>
+        <label><input type="checkbox" id="ckPngComposite" checked> PNG - image + lines</label>
+            <label><input type="checkbox" id="ckPngLines" checked> PNG - lines only</label><br>
+            <label><input type="checkbox" id="ckSvgImage" checked> SVG - image + lines</label>
+            <label><input type="checkbox" id="ckSvgLines" checked> SVG - lines only</label><br>
+                 <label><input type="checkbox" id="ckCsv" checked> CSV - coordinates &amp; lengths</label><br>
         <div id="saveModalBtns">
           <button class="btn" style="background:#2a6;color:#fff;flex:1" id="saveModalConfirm">Download</button>
           <button class="btn" style="flex:1" id="saveModalCancel">Cancel</button>
@@ -266,6 +274,36 @@
 
   <!-- Your p5.js sketch -->
   <script src="sketch.js?v=2"></script>
+
+  <script>
+    (function() {
+      var panel = document.getElementById('instructionsPanel');
+      var dragging = false, startX, startY, origLeft, origTop;
+
+      panel.addEventListener('mousedown', function(e) {
+        if (e.target.tagName === 'SPAN') return; // don't drag on close button
+        // Resolve transform-based centering to absolute px on first drag
+        var r = panel.getBoundingClientRect();
+        panel.style.left = r.left + 'px';
+        panel.style.top = r.top + 'px';
+        panel.style.transform = 'none';
+        origLeft = r.left;
+        origTop = r.top;
+        startX = e.clientX;
+        startY = e.clientY;
+        dragging = true;
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        panel.style.left = (origLeft + e.clientX - startX) + 'px';
+        panel.style.top  = (origTop  + e.clientY - startY) + 'px';
+      });
+
+      document.addEventListener('mouseup', function() { dragging = false; });
+    })();
+  </script>
 
 </body>
 </html>
