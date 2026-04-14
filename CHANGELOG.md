@@ -2,7 +2,7 @@
 
 
 
-## 2026-04-13 v1.3
+## 2026-04-14 v1.3
 
 - Move whole line option added
 - Whole line snap to endpoint option added
