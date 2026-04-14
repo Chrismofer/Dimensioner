@@ -32,17 +32,19 @@ The workflow is simple:
 - Selected angle labels can be clicked and dragged to reposition.
 - Angle arcs and labels update live if the referenced lines are moved.
 - Draw a grid between two lines with configurable cross and along cell counts
+- **Affine Spacing** mode: evenly spaces grid lines across the quad
+- **2VP Spacing** mode: perspective-correct harmonic spacing using the two vanishing points derived from the reference lines; the button turns red if the quad is concave (no interior lines are drawn)
 - Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly.
 - Snap lines to 45° anglesby holding **Shift**
 - hold **Ctrl**/**Alt** while dragging a whole line or group of lines to link lines by endpoints
 - Zoom, pan, and rotate the view
 - Unlimited Undo / Redo
 - Save output options:
-  - **PNG** — composite image with lines and labels
-  - **PNG** — lines and labels only, on a dark background
-  - **SVG** — vector lines and labels (raster image included)
-  - **SVG** — vector lines and labels (no raster image)
-  - **CSV** — spreadsheet of all line coordinates and lengths
+  - **PNG**: composite image with lines and labels
+  - **PNG**: lines and labels only, on a dark background
+  - **SVG**: vector lines and labels (raster image included)
+  - **SVG**: vector lines and labels (no raster image)
+  - **CSV**: spreadsheet of all line coordinates and lengths
 
 
 ## Controls
@@ -69,6 +71,7 @@ The workflow is simple:
 | Cancel angle mode | Press **Escape** or click **Measure Angle** again |
 | Draw grid | Click **Draw Grid** button, then select two lines |
 | Set grid cell counts | **Cross** / **Along** inputs in sidebar |
+| Toggle grid spacing mode | **Affine Spacing** / **2VP Spacing** button (teal = active/convex, red = concave quad) |
 | Adjust grid extents | Drag endpoint circles while in grid mode |
 | Confirm / Cancel grid | **Enter** / **Escape** |
 | Undo / Redo | **Ctrl+Z** / **Ctrl+Y** |

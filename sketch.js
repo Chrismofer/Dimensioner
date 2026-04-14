@@ -47,6 +47,7 @@ let drawGridMode = false;
 let gridLines = [];
 let gridDivisionsX = 2; // cross lines (parallel to A/B)
 let gridDivisionsY = 2; // along lines (parallel to connectors)
+let gridVpMode = false;
 let showPxLabels = true;
 let showCalibratedLabels = true;
 let showAngleLabels = true;
@@ -234,6 +235,14 @@ function setup() {
   document.getElementById('showCalibratedLabels').addEventListener('change', function() { showCalibratedLabels = this.checked; });
   document.getElementById('showAngleLabels').addEventListener('change', function() { showAngleLabels = this.checked; });
 
+  const gridSpacingToggle = document.getElementById('gridSpacingToggle');
+  gridSpacingToggle.addEventListener('click', () => {
+    gridVpMode = !gridVpMode;
+    gridSpacingToggle.textContent = gridVpMode ? '2VP Spacing' : 'Affine Spacing';
+    gridSpacingToggle.style.background = '#466';
+    gridSpacingToggle.style.color = '#aff';
+  });
+
   drawGridBtn = select('#drawGridBtn');
   drawGridBtn.mousePressed(() => {
     if (drawGridMode || gridLines.length > 0) {
@@ -369,8 +378,14 @@ function draw() {
   }
   // Draw Grid preview lines
   if (gridLines.length === 2) {
-    let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY);
-    strokeWeight(currentLineWeight / zoom);
+    let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY, gridVpMode);
+    // Update spacing toggle button color: red if 2VP+concave, teal otherwise
+    let gst = document.getElementById('gridSpacingToggle');
+    if (gst) {
+      let concave = gridVpMode && !isGridQuadConvex(gridLines[0], gridLines[1]);
+      gst.style.background = concave ? '#633' : '#466';
+      gst.style.color = concave ? '#faa' : '#aff';
+    }
     stroke(currentLineColor);
     drawingContext.setLineDash([8 / zoom, 6 / zoom]);
     for (let s of segs) {
@@ -379,6 +394,10 @@ function draw() {
       line(s.x1, s.y1, s.x2, s.y2);
     }
     drawingContext.setLineDash([]);
+  } else {
+    // Not in grid drawing mode — ensure toggle button stays teal
+    let gst = document.getElementById('gridSpacingToggle');
+    if (gst) { gst.style.background = '#466'; gst.style.color = '#aff'; }
   }
   if (dragging) {
     let ic1 = toImgCoords(dragStartX, dragStartY);
@@ -402,6 +421,30 @@ function draw() {
         strokeWeight(1.5);
         stroke(255);
         ellipse(sp.x, sp.y, EP_RADIUS * 2, EP_RADIUS * 2);
+      }
+    }
+    // 2VP mode: compute and draw vanishing points
+    if (gridVpMode) {
+      let a = gridLines[0], b = gridLines[1];
+      // Orient b to match a (same as buildGridLines)
+      let d1 = dist(a.x1, a.y1, b.x1, b.y1) + dist(a.x2, a.y2, b.x2, b.y2);
+      let d2 = dist(a.x1, a.y1, b.x2, b.y2) + dist(a.x2, a.y2, b.x1, b.y1);
+      let b1x, b1y, b2x, b2y;
+      if (d1 <= d2) { b1x = b.x1; b1y = b.y1; b2x = b.x2; b2y = b.y2; }
+      else          { b1x = b.x2; b1y = b.y2; b2x = b.x1; b2y = b.y1; }
+      // VP1: intersection of the two rails
+      let vp1 = lineIntersection(a, b);
+      // VP2: intersection of the two end-connectors
+      let conn1 = { x1: a.x1, y1: a.y1, x2: b1x, y2: b1y };
+      let conn2 = { x1: a.x2, y1: a.y2, x2: b2x, y2: b2y };
+      let vp2 = lineIntersection(conn1, conn2);
+      for (let vp of [vp1, vp2]) {
+        if (!vp) continue;
+        let sp = toScreenCoords(vp.x, vp.y);
+        strokeWeight(2); stroke(0); noFill();
+        ellipse(sp.x, sp.y, 14, 14);
+        strokeWeight(1.5); stroke(255); fill(255, 255, 255, 120);
+        ellipse(sp.x, sp.y, 14, 14);
       }
     }
   }
@@ -622,42 +665,124 @@ function drawAngleLabel(sx, sy, angleDeg, inverted) {
   text(label, sx, sy);
 }
 
-// Returns all new lines for the grid as [{x1,y1,x2,y2},...]:
-// 2 outer connectors + interior cross and along lines
-function buildGridLines(a, b, Nx, Ny) {
+// Returns harmonic parameter t such that 1/dist(P(t), vp) is linearly spaced
+function harmonicT(k, N, pNear, pFar, vp) {
+  let d_near = dist(pNear.x, pNear.y, vp.x, vp.y);
+  let d_far  = dist(pFar.x,  pFar.y,  vp.x, vp.y);
+  if (d_near < 1e-6 || d_far < 1e-6 || abs(d_far - d_near) < 1e-6) return k / N;
+  let inv_near = 1 / d_near;
+  let inv_far  = 1 / d_far;
+  let inv_k = inv_near + (k / N) * (inv_far - inv_near);
+  if (abs(inv_k) < 1e-12) return k / N;
+  let d_k = 1 / inv_k;
+  return (d_k - d_near) / (d_far - d_near);
+}
+
+// Returns true if the oriented quad formed by lines a and b is convex
+function isGridQuadConvex(a, b) {
   let d1 = dist(a.x1, a.y1, b.x1, b.y1) + dist(a.x2, a.y2, b.x2, b.y2);
   let d2 = dist(a.x1, a.y1, b.x2, b.y2) + dist(a.x2, a.y2, b.x1, b.y1);
   let b1x, b1y, b2x, b2y;
   if (d1 <= d2) { b1x = b.x1; b1y = b.y1; b2x = b.x2; b2y = b.y2; }
   else          { b1x = b.x2; b1y = b.y2; b2x = b.x1; b2y = b.y1; }
+  let dx1 = b2x - a.x1, dy1 = b2y - a.y1;
+  let dx2 = b1x - a.x2, dy2 = b1y - a.y2;
+  let denom = dx1 * dy2 - dy1 * dx2;
+  if (abs(denom) < 1e-10) return false;
+  let t = ((a.x2 - a.x1) * dy2 - (a.y2 - a.y1) * dx2) / denom;
+  let u = ((a.x2 - a.x1) * dy1 - (a.y2 - a.y1) * dx1) / denom;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+// Returns all new lines for the grid as [{x1,y1,x2,y2},...]:
+// 2 outer connectors + interior cross and along lines
+function buildGridLines(a, b, Nx, Ny, vpMode) {
+  let d1 = dist(a.x1, a.y1, b.x1, b.y1) + dist(a.x2, a.y2, b.x2, b.y2);
+  let d2 = dist(a.x1, a.y1, b.x2, b.y2) + dist(a.x2, a.y2, b.x1, b.y1);
+  let b1x, b1y, b2x, b2y;
+  if (d1 <= d2) { b1x = b.x1; b1y = b.y1; b2x = b.x2; b2y = b.y2; }
+  else          { b1x = b.x2; b1y = b.y2; b2x = b.x1; b2y = b.y1; }
+
+  // Convexity check: diagonals of the quad must intersect inside (t in [0,1] for both)
+  function quadIsConvex() {
+    let diag1 = { x1: a.x1, y1: a.y1, x2: b2x, y2: b2y };
+    let diag2 = { x1: a.x2, y1: a.y2, x2: b1x, y2: b1y };
+    let dx1 = diag1.x2 - diag1.x1, dy1 = diag1.y2 - diag1.y1;
+    let dx2 = diag2.x2 - diag2.x1, dy2 = diag2.y2 - diag2.y1;
+    let denom = dx1 * dy2 - dy1 * dx2;
+    if (abs(denom) < 1e-10) return false;
+    let t = ((diag2.x1 - diag1.x1) * dy2 - (diag2.y1 - diag1.y1) * dx2) / denom;
+    let u = ((diag2.x1 - diag1.x1) * dy1 - (diag2.y1 - diag1.y1) * dx1) / denom;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+
   let result = [];
   // Outer connectors: solid
   result.push({ x1: a.x1, y1: a.y1, x2: b1x, y2: b1y, dashed: false });
   result.push({ x1: a.x2, y1: a.y2, x2: b2x, y2: b2y, dashed: false });
-  // Interior cross lines (parallel to A/B): dashed
-  for (let k = 1; k < Nx; k++) {
-    let t = k / Nx;
-    result.push({
-      x1: a.x1 + t * (a.x2 - a.x1), y1: a.y1 + t * (a.y2 - a.y1),
-      x2: b1x  + t * (b2x  - b1x),  y2: b1y  + t * (b2y  - b1y),
-      dashed: true
-    });
-  }
-  // Interior along lines (parallel to connectors): dashed
-  for (let k = 1; k < Ny; k++) {
-    let s = k / Ny;
-    result.push({
-      x1: a.x1 + s * (b1x - a.x1), y1: a.y1 + s * (b1y - a.y1),
-      x2: a.x2 + s * (b2x - a.x2), y2: a.y2 + s * (b2y - a.y2),
-      dashed: true
-    });
+
+  if (vpMode) {
+    if (quadIsConvex()) {
+      let vp1 = lineIntersection(a, b);
+      let conn1 = { x1: a.x1, y1: a.y1, x2: b1x, y2: b1y };
+      let conn2 = { x1: a.x2, y1: a.y2, x2: b2x, y2: b2y };
+      let vp2 = lineIntersection(conn1, conn2);
+      // Cross lines: harmonic positions on rails (VP1), direction toward VP2
+      for (let k = 1; k < Nx; k++) {
+        let tA = vp1 ? harmonicT(k, Nx, {x: a.x1, y: a.y1}, {x: a.x2, y: a.y2}, vp1) : k / Nx;
+        let pA = { x: a.x1 + tA * (a.x2 - a.x1), y: a.y1 + tA * (a.y2 - a.y1) };
+        let pB;
+        if (vp2) {
+          let crossLine = { x1: pA.x, y1: pA.y, x2: vp2.x, y2: vp2.y };
+          let inter = lineIntersection(crossLine, { x1: b1x, y1: b1y, x2: b2x, y2: b2y });
+          pB = inter || { x: b1x + tA * (b2x - b1x), y: b1y + tA * (b2y - b1y) };
+        } else {
+          pB = { x: b1x + tA * (b2x - b1x), y: b1y + tA * (b2y - b1y) };
+        }
+        result.push({ x1: pA.x, y1: pA.y, x2: pB.x, y2: pB.y, dashed: true });
+      }
+      // Along lines: harmonic positions on connectors (VP2), direction toward VP1
+      for (let k = 1; k < Ny; k++) {
+        let sA = vp2 ? harmonicT(k, Ny, {x: a.x1, y: a.y1}, {x: b1x, y: b1y}, vp2) : k / Ny;
+        let pC = { x: a.x1 + sA * (b1x - a.x1), y: a.y1 + sA * (b1y - a.y1) };
+        let pD;
+        if (vp1) {
+          let alongLine = { x1: pC.x, y1: pC.y, x2: vp1.x, y2: vp1.y };
+          let inter = lineIntersection(alongLine, conn2);
+          pD = inter || { x: a.x2 + sA * (b2x - a.x2), y: a.y2 + sA * (b2y - a.y2) };
+        } else {
+          pD = { x: a.x2 + sA * (b2x - a.x2), y: a.y2 + sA * (b2y - a.y2) };
+        }
+        result.push({ x1: pC.x, y1: pC.y, x2: pD.x, y2: pD.y, dashed: true });
+      }
+    }
+    // else: concave quad in VP mode — draw only outer connectors, no interior lines
+  } else {
+    // Interior cross lines (parallel to A/B): dashed
+    for (let k = 1; k < Nx; k++) {
+      let t = k / Nx;
+      result.push({
+        x1: a.x1 + t * (a.x2 - a.x1), y1: a.y1 + t * (a.y2 - a.y1),
+        x2: b1x  + t * (b2x  - b1x),  y2: b1y  + t * (b2y  - b1y),
+        dashed: true
+      });
+    }
+    // Interior along lines (parallel to connectors): dashed
+    for (let k = 1; k < Ny; k++) {
+      let s = k / Ny;
+      result.push({
+        x1: a.x1 + s * (b1x - a.x1), y1: a.y1 + s * (b1y - a.y1),
+        x2: a.x2 + s * (b2x - a.x2), y2: a.y2 + s * (b2y - a.y2),
+        dashed: true
+      });
+    }
   }
   return result;
 }
 
 function confirmGrid() {
   if (gridLines.length < 2) return;
-  let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY);
+  let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY, gridVpMode);
   for (let s of segs) {
     let ln = new DrawnLine(s.x1, s.y1, s.x2, s.y2, currentLineColor, currentLineWeight);
     lines.push(ln);

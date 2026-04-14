@@ -1,6 +1,16 @@
 # Changelog
 
 
+
+## 2026-04-14 v1.3.3
+
+- 2VP Spacing grid mode: perspective-correct harmonic spacing derived from two vanishing points
+- Affine Spacing mode retained as default grid option
+- Spacing toggle button turns red when quad is concave (no interior lines drawn in 2VP mode)
+- Button color resets to teal when not in grid drawing mode
+- README updated to document grid spacing modes
+
+
 ## 2026-04-14 v1.3.2
 
 - reworked UI with colorful buttons and thoughtful arrangement
