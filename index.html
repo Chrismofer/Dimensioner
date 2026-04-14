@@ -109,12 +109,13 @@
     <!-- Sidebar UI -->
     <div id="sidebar">
 
-      <button id="openBtn" class="btn" style="background:#5a9e6f; color:#fff">Open Image</button>
-      <input id="fileInput" type="file" accept="image/*" />
+      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px">
+        <button id="openBtn" class="btn" style="background:#5a9e6f; color:#fff">Open Image</button>
+        <input id="fileInput" type="file" accept="image/*" />
+        <button id="resetImage" class="btn" style="background:#9e5a5a; color:#fff; margin-top:8px">Reset Image</button>
+      </div>
 
-      <button id="resetImage" class="btn" style="background:#9e5a5a; color:#fff; margin-bottom:60px">Reset Image</button>
-
-      <div>
+      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
         <div class="small" style="align-items:flex-start">
           <div style="margin-left:8px">
             <label>Line Color</label>
@@ -131,13 +132,25 @@
             </div>
           </div>
         </div>
-      </div>
-
-      <div style="margin-bottom:40px">
-        <div class="small" style="margin-top:4px">
-          <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
+        <div style="margin-top:8px; font-size:12px; color:#bbb">
+          Line length labels:
+          <div style="display:flex; gap:10px; margin-top:4px">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showPxLabels" checked> px</label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showCalibratedLabels" checked> calibrated</label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showAngleLabels" checked> angles</label>
+          </div>
         </div>
         <div style="margin-top:10px">
+          <button id="resetLines" class="btn" style="background:#9e5a5a; color:#fff">Reset Lines</button>
+        </div>
+      </div>
+
+      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
+        <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
+      </div>
+
+      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
+        <div>
           <button id="drawGridBtn" class="btn" style="background:#46a; color:#fff">Draw Grid</button>
         </div>
         <div style="margin-top:6px; font-size:13px; color:#bbb">
@@ -149,26 +162,15 @@
             <input id="gridDivAlong" type="number" min="1" max="512" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
           </div>
         </div>
-        <div style="margin-top:10px">
-          <button id="resetLines" class="btn" style="background:#9e5a5a; color:#fff">Reset Lines</button>
-        </div>
-        <div style="margin-top:8px; font-size:12px; color:#bbb">
-          Line length labels:
-          <div style="display:flex; gap:10px; margin-top:4px">
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showPxLabels" checked> px</label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showCalibratedLabels" checked> calibrated</label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showAngleLabels" checked> angles</label>
-          </div>
-        </div>
       </div>
 
-      <div style="margin-top:30px">
+      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
         <div class="small" style="align-items:flex-start">
           <div style="flex:1">
             <label>Zoom</label>
             <input id="zoomInput" type="number" min="0.1" max="20" step="0.1" value="1.00" style="width:64px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px; margin-top:4px" />
           </div>
-          <div style="flex:2; padding-left:20px">
+          <div style="flex:2; padding-left:8px">
             <label>Position</label>
             <div id="posDisplay">X: 0 &nbsp; Y: 0</div>
           </div>
@@ -177,29 +179,28 @@
           </div>
         </div>
         <div class="small" style="margin-top:6px">
-          <button id="rotateLeft" class="btn">&#8634; 45&deg;</button>
-          <button id="rotateRight" class="btn">&#8635; 45&deg;</button>
+          <button id="rotateLeft" class="btn"><span style="font-size:1.8em; line-height:1; ">&#8634;</span> <span style="vertical-align:0.15em">45&deg;</span></button>
+          <button id="rotateRight" class="btn"><span style="font-size:1.8em; line-height:1; ">&#8635;</span> <span style="vertical-align:0.15em">45&deg;</span></button>
         </div>
       </div>
 
-      <div class="small">
-        <button id="undoBtn" class="btn">Undo</button>
-        <button id="redoBtn" class="btn">Redo</button>
+      <div class="small" style="margin-top:20px">
+        <button id="undoBtn" class="btn" style="background:#7a7040; color:#f5f0c8">Undo</button>
+        <button id="redoBtn" class="btn" style="background:#7a7040; color:#f5f0c8">Redo</button>
       </div>
-<br><br>
 
-      <button id="saveBtn" class="btn" style="background:#2a6; color:#fff">Save Output</button>
+      <button id="saveBtn" class="btn" style="background:#2a6; color:#fff; margin-top:20px">Save Output</button>
 
-      <div style="margin-top:160px">
-        <button id="toggleInstructions" class="btn" onclick="(function(){
+      <div style="margin-top:auto; margin-bottom:40px; display:flex; justify-content:center; border:1px solid #555; border-radius:6px; padding:10px 12px">
+        <button id="toggleInstructions" class="btn" style="width:66%" onclick="(function(){
           var p = document.getElementById('instructionsPanel');
           p.style.display = p.style.display === 'none' ? 'block' : 'none';
         })()">Toggle Instructions</button>
       </div>
 
-      <div style="margin-top:auto; font-size:12px; color:#999">
-        Dimensioner by Chris Bovee <br>
-        JS + HTML
+      <div style="font-size:12px; color:#999">
+        Dimensioner version 1.3.2 <br> by Chris Bovee <br>
+         JS + HTML
       </div>
     </div>
 

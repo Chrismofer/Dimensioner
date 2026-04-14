@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 2026-04-14 v1.3.2
+
+- reworked UI with colorful buttons and thoughtful arrangement
+
 ## 2026-04-14 v1.3.1
 
 - fixed multi-select color and thickness controls to apply to all selected lines (bug)
