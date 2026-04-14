@@ -12,7 +12,7 @@
 - some refactoring of get snap points, line length calculation, etc.
 - A key selects all lines and arcs
 
-## 2026-04-13 v1.2.1
+## 2026-04-13 v1.2.2
 
 
 - reworked undo/redo to include line moves and arc moves, not just line drawing
