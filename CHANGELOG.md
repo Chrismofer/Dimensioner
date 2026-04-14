@@ -1,18 +1,25 @@
 # Changelog
 
+## 2026-04-14 v1.3.1
+
+- fixed multi-select color and thickness controls to apply to all selected lines
+- fixed multi-select deletion crashing on second line
+- fixed arc label not moving when dragging a line while the arc is selected
+- fixed multi-selection being unexpectedly cleared when clicking a selected item
+- whole-line drag now snaps to nearby endpoints when Ctrl/Alt is held; snapping circles turn green
 
 
-## 2026-04-13 v1.3
+## 2026-04-14 v1.3
 
 - Move whole line option added
-- Whole line snap to endpoint option added
+- W1.3hole line snap to endpoint option added
 - Multi select with ctrl/alt, group drag and group delete (includes lines and arcs)
 - SVG exports reworked 
 - checkbox toggles for PX lengths, calibrated lengths, and angles
 - some refactoring of get snap points, line length calculation, etc.
 - A key selects all lines and arcs
 
-## 2026-04-13 v1.2.1
+## 2026-04-13 v1.2.2
 
 
 - reworked undo/redo to include line moves and arc moves, not just line drawing
