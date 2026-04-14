@@ -133,7 +133,11 @@ function setup() {
   fileInput.elt.addEventListener('change', handleFileSelect);
   colorPicker.elt.addEventListener('input', function() {
     currentLineColor = String(this.value);
-    if (selectedLine) selectedLine.col = currentLineColor;
+    if (selectedLines.length > 0) {
+      for (let ln of selectedLines) ln.col = currentLineColor;
+    } else if (selectedLine) {
+      selectedLine.col = currentLineColor;
+    }
   });
 
   document.getElementById('zoomInput').addEventListener('input', function() {
@@ -150,7 +154,11 @@ function setup() {
     let v = parseFloat(this.value);
     if (v > 0) {
       currentLineWeight = v;
-      if (selectedLine) selectedLine.weight = currentLineWeight;
+      if (selectedLines.length > 0) {
+        for (let ln of selectedLines) ln.weight = currentLineWeight;
+      } else if (selectedLine) {
+        selectedLine.weight = currentLineWeight;
+      }
     }
   });
 
