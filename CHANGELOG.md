@@ -1,6 +1,9 @@
 # Changelog
 
+## 2026-04-14 v1.3.4
 
+- ease of use fixes with the grid tool and line selection.
+- expanded instructions dialog for completion
 
 ## 2026-04-14 v1.3.3
 

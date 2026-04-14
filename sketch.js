@@ -259,11 +259,18 @@ function setup() {
     gridLines = [];
     if (lines.length === 2) {
       gridLines = [lines[0], lines[1]];
-      selectedLine = null; inputFocused = false;
+      selectedLine = null; selectedLines = []; inputFocused = false;
+      showStatus('Press Enter to confirm, Escape to cancel');
+    } else if (selectedLines.length > 2) {
+      drawGridMode = false;
+      showStatus('Too many lines selected. Select two lines.', true);
+    } else if (selectedLines.length === 2) {
+      gridLines = [selectedLines[0], selectedLines[1]];
+      selectedLine = null; selectedLines = []; inputFocused = false;
       showStatus('Press Enter to confirm, Escape to cancel');
     } else if (selectedLine) {
       gridLines.push(selectedLine);
-      selectedLine = null; inputFocused = false;
+      selectedLine = null; selectedLines = []; inputFocused = false;
       showStatus('Select second line');
     } else {
       showStatus('Select first line');
