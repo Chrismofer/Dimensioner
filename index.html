@@ -10,95 +10,332 @@
 
 
   <style>
+    :root {
+      --bg: #14171c;
+      --sidebar-bg: #1c2027;
+      --panel-bg: #232830;
+      --panel-bg-2: #2a3038;
+      --border: #333a44;
+      --border-soft: #3d4855;
+      --text: #e6e8eb;
+      --text-dim: #9aa3af;
+      --text-mute: #6b7280;
+      --accent: #6aaee8;
+      --accent-hover: #82bced;
+      --success: #5dba88;
+      --success-hover: #72c698;
+      --danger: #b34e4a;
+      --danger-hover: #c05a56;
+      --warning: #cea85a;
+      --warning-hover: #d8b86e;
+      --tool: #9492cc;
+      --tool-hover: #a8a6d6;
+    }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: sans-serif;
-      background: #222;
-      color: #ddd;
+      font-family: -apple-system, "Segoe UI", Roboto, Inter, system-ui, sans-serif;
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
     }
     #container {
       display: flex;
       height: 100vh;
     }
     #sidebar {
-      width: 260px;
-      min-width: 260px;
+      width: 272px;
+      min-width: 272px;
       flex-shrink: 0;
-      background: #2f2f2f;
-      padding: 12px;
+      background: var(--sidebar-bg);
+      padding: 14px 14px 16px;
       box-sizing: border-box;
-      border-right: 1px solid #111;
+      border-right: 1px solid #0a0c0f;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow-y: auto;
+    }
+    #sidebar::-webkit-scrollbar { width: 8px; }
+    #sidebar::-webkit-scrollbar-track { background: transparent; }
+    #sidebar::-webkit-scrollbar-thumb { background: #2a3038; border-radius: 4px; }
+    #sidebar::-webkit-scrollbar-thumb:hover { background: #3a4250; }
+    #canvas-holder {
+      flex: 1;
+      position: relative;
+      background: var(--bg);
+    }
+
+    /* Section card */
+    .section {
+      background: var(--panel-bg);
+      border: 1px solid var(--border-soft);
+      border-radius: 8px;
+      padding: 10px 12px 12px;
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
-    #canvas-holder {
-      flex: 1;
-      position: relative;
+    .section-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+      margin: 0;
+      text-align: center;
     }
-    button, input {
-      font-size: 14px;
-    }
+
+    /* Buttons */
     .btn {
-      width: 100%;
-      padding: 8px;
-      background: #444;
-      color: #eee;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      background: #3a414c;
+      color: var(--text);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease, transform 0.05s ease;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .btn:hover { background: #454d5a; }
+    .btn:active { transform: translateY(1px); }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .btn-block { width: 100%; }
+    .btn-row { display: flex; gap: 8px; }
+    .btn-row > .btn { flex: 1; }
+
+    .btn-primary { background: var(--accent); color: #1a2330; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-success { background: var(--success); color: #16301f; }
+    .btn-success:hover { background: var(--success-hover); }
+    .btn-danger { background: var(--danger); color: #f5d5d3; }
+    .btn-danger:hover { background: var(--danger-hover); }
+    .btn-warning { background: var(--warning); color: #322611; }
+    .btn-warning:hover { background: var(--warning-hover); }
+    .btn-tool { background: var(--tool); color: #1d1c3a; }
+    .btn-tool:hover { background: var(--tool-hover); }
+
+    /* Active tool highlight (mutually exclusive) */
+    .tool-btn.tool-active {
+      background: var(--tool);
+      color: #1d1c3a;
+      border-color: transparent;
+      box-shadow: 0 0 0 2px rgba(168,166,214,0.35);
+    }
+    .tool-btn.tool-active:hover { background: var(--tool-hover); }
+
+    /* Brief red flash when a tool is clicked but cannot activate */
+    .tool-btn.tool-error {
+      background: transparent !important;
+      color: var(--danger) !important;
+      border-color: var(--danger) !important;
+      box-shadow: 0 0 0 1px var(--danger) !important;
+      transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    /* Contextual tool option panels */
+    .tool-options {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border);
+    }
+    .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-dim); }
+    .btn-ghost:hover { background: var(--panel-bg-2); color: var(--text); }
+    .btn-muted { background: #343d4a; border-color: #4a5666; color: #c0cad6; }
+    .btn-muted:hover { background: #3d4855; color: var(--text); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* Form controls */
+    label.field-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+      text-align: center;
+    }
+    .input,
+    input[type="number"],
+    input[type="text"] {
+      background: #14181e;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 13px;
+      font-family: inherit;
+      transition: border-color 0.12s ease;
+    }
+    .input:focus,
+    input[type="number"]:focus,
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    input[type="color"] {
+      width: 46px;
+      height: 26px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    input[type="color"]::-webkit-color-swatch {
       border: none;
       border-radius: 4px;
+    }
+    input[type="color"]::-moz-color-swatch {
+      border: none;
+      border-radius: 4px;
+    }
+    input[type="checkbox"] {
+      accent-color: var(--accent);
       cursor: pointer;
     }
-    .small {
+
+    .row {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       align-items: center;
     }
-    .hint {
+    .row-between {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .stack { display: flex; flex-direction: column; gap: 8px; }
+    .unit { font-size: 11px; color: var(--text-mute); }
+
+    .checks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      justify-content: center;
+    }
+    .checks label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       font-size: 12px;
-      color: #fff;
-      margin-top: 6px;
+      color: var(--text-dim);
+      cursor: pointer;
     }
-    #fileInput {
-      display: none;
+    .readout {
+      display: inline-block;
+      background: #14181e;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-dim);
+      letter-spacing: 0.03em;
     }
+
+    #fileInput { display: none; }
+
+    /* Position/zoom display */
+    #posDisplay {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      background: #14181e;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 8px;
+    }
+
+    /* Footer */
+    .sidebar-footer {
+      margin-top: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-soft);
+      font-size: 11px;
+      color: var(--text-mute);
+      text-align: center;
+      line-height: 1.5;
+    }
+    .sidebar-footer strong { color: var(--text-dim); font-weight: 500; }
+
+    /* Save modal */
     #saveModal {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.6);
+      background: rgba(8,10,14,0.65);
+      backdrop-filter: blur(2px);
       z-index: 100;
       align-items: center;
       justify-content: center;
     }
-    #saveModal.open {
-      display: flex;
-    }
+    #saveModal.open { display: flex; }
     #saveModalBox {
-      background: #2f2f2f;
-      border: 1px solid #555;
-      border-radius: 8px;
-      padding: 20px 24px;
-      min-width: 260px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+      min-width: 280px;
       display: flex;
       flex-direction: column;
       gap: 10px;
-      color: #eee;
+      color: var(--text);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
     }
     #saveModalBox h3 {
-      margin: 0 0 4px 0;
-      font-size: 15px;
+      margin: 0 0 6px 0;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-dim);
     }
     #saveModalBox label {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
     }
     #saveModalBtns {
       display: flex;
       gap: 8px;
-      margin-top: 6px;
+      margin-top: 10px;
+    }
+
+    /* Reset Lines confirmation */
+    #resetLinesDialog {
+      background: var(--panel-bg) !important;
+      border: 1px solid var(--border) !important;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5) !important;
+    }
+
+    /* Instructions panel */
+    #instructionsPanel {
+      background: var(--panel-bg) !important;
+      border: 1px solid var(--border) !important;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5) !important;
     }
   </style>
 </head>
@@ -109,101 +346,129 @@
     <!-- Sidebar UI -->
     <div id="sidebar">
 
-      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px">
-        <button id="openBtn" class="btn" style="background:#5a9e6f; color:#fff">Open Image</button>
+      <!-- IMAGE -->
+      <div class="section">
+        <p class="section-title" style="display:none">Image</p>
+        <button id="openBtn" class="btn btn-success btn-block">Open Image</button>
         <input id="fileInput" type="file" accept="image/*" />
-        <button id="resetImage" class="btn" style="background:#9e5a5a; color:#fff; margin-top:8px">Reset Image</button>
+        <button id="resetImage" class="btn btn-danger btn-block">Close Image</button>
       </div>
 
-      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
-        <div class="small" style="align-items:flex-start">
-          <div style="margin-left:8px">
-            <label>Line Color</label>
-            <div style="margin-top:4px">
+      <!-- TOOLS -->
+      <div class="section">
+        <p class="section-title">Tools</p>
+        <button id="drawLineBtn" class="btn btn-ghost btn-block tool-btn">Draw Line</button>
+        <button id="measureAngleBtn" class="btn btn-ghost btn-block tool-btn">Draw Angle</button>
+        <button id="drawGridBtn" class="btn btn-ghost btn-block tool-btn">Draw Grid</button>
+
+        <!-- Color + thickness: always visible for all tools -->
+        <div class="tool-options">
+          <div class="row" style="justify-content:center; gap:40px">
+            <div style="text-align:center">
+              <label class="field-label">Color</label>
               <input id="colorPicker" type="color" value="#efb110" />
             </div>
-          </div>
-          <span style="width:20px"></span>
-          <div>
-            <label>Line Thickness</label>
-            <div class="small" style="margin-top:4px">
-              <input id="thicknessPicker" type="number" min="0.5" max="50" step="0.5" value="2" style="width:70px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px; margin-top:2px;" />
-              <span style="font-size:13px; color:#aaa;">px</span>
+            <div style="text-align:center">
+              <label class="field-label" style="padding-right:20px">Thickness</label>
+              <div class="row" style="gap:6px; justify-content:center">
+                <input id="thicknessPicker" type="number" min="0.1" max="50" step="0.1" value="2" style="width:54px" />
+                <span class="unit">px</span>
+              </div>
             </div>
           </div>
         </div>
-        <div style="margin-top:8px; font-size:12px; color:#bbb">
-          Line length labels:
-          <div style="display:flex; gap:10px; margin-top:4px">
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showPxLabels" checked> px</label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showCalibratedLabels" checked> calibrated</label>
-            <label style="display:flex; align-items:center; gap:4px; cursor:pointer"><input type="checkbox" id="showAngleLabels" checked> angles</label>
+
+        <!-- Line/Angle contextual options (currently empty, kept for future use) -->
+        <div id="lineToolOptions" class="tool-options" style="display:none"></div>
+
+        <!-- Grid tool options -->
+        <div id="gridToolOptions" class="tool-options" style="display:none">
+          <div>
+            <label class="field-label">Grid cells</label>
+            <div class="row" style="justify-content:center; gap:10px">
+              <div style="display:flex; align-items:center; gap:5px">
+                <span class="unit">Cross</span>
+                <input id="gridDivCross" type="number" min="1" max="512" step="1" value="2" style="width:52px" />
+              </div>
+              <div style="display:flex; align-items:center; gap:5px">
+                <span class="unit">Along</span>
+                <input id="gridDivAlong" type="number" min="1" max="512" step="1" value="2" style="width:52px" />
+              </div>
+            </div>
+          </div>
+          <div style="text-align:center">
+            <button id="gridSpacingToggle" class="btn btn-ghost btn-sm" style="width:50%">Affine Spacing</button>
           </div>
         </div>
-        <div style="margin-top:10px">
-          <button id="resetLines" class="btn" style="background:#9e5a5a; color:#fff">Reset Lines</button>
+
+        <div class="tool-options">
+          <div class="btn-row">
+            <button id="undoBtn" class="btn btn-muted">Undo</button>
+            <button id="redoBtn" class="btn btn-muted">Redo</button>
+          </div>
+          <button id="resetLines" class="btn btn-danger btn-block">Reset Lines</button>
         </div>
       </div>
 
-      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
-        <button id="measureAngleBtn" class="btn" style="background:#46a; color:#fff">Measure Angle</button>
-      </div>
+      <!-- VIEW -->
+      <div class="section" style="gap:14px">
+        <p class="section-title">View</p>
 
-      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
+        <!-- Zoom slider -->
         <div>
-          <button id="drawGridBtn" class="btn" style="background:#46a; color:#fff">Draw Grid</button>
-        </div>
-        <div style="margin-top:8px">
-          <button id="gridSpacingToggle" class="btn" style="background:#466; color:#aff; font-size:12px">Affine Spacing</button>
-        </div>
-        <div style="margin-top:6px; font-size:13px; color:#bbb">
-          <div style="font-size:15px; color:#eee; text-align:center">Number of Cells:</div>
-          <div style="display:flex; align-items:center; gap:8px; margin-top:4px">
-            <label style="white-space:nowrap">Cross</label>
-            <input id="gridDivCross" type="number" min="1" max="512" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
-            <label style="white-space:nowrap">Along</label>
-            <input id="gridDivAlong" type="number" min="1" max="512" step="1" value="2" style="width:46px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:3px 5px; font-size:13px" />
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px">
+            <label class="field-label" style="margin:0">Zoom</label>
+            <span id="zoomDisplay" style="font-size:12px; font-variant-numeric:tabular-nums; color:var(--text-dim); margin-right:-4px">1.00×</span>
           </div>
+          <input id="zoomInput" type="range" min="0" max="1000" step="1" value="500" style="width:100%" />
+        </div>
+
+        <!-- Position readout -->
+        <div style="text-align:center">
+          <label class="field-label">Position</label>
+          <div id="posDisplay" class="readout">X: 0 &nbsp; Y: 0</div>
+        </div>
+
+        <!-- Reset view + rotate -->
+        <div class="btn-row">
+          <button id="resetView" class="btn btn-ghost" style="flex:2">Reset View</button>
+          <button id="rotateLeft" class="btn btn-ghost" style="flex:1" title="Rotate 45° counter-clockwise">&#8634; 45°</button>
+          <button id="rotateRight" class="btn btn-ghost" style="flex:1" title="Rotate 45° clockwise">&#8635; 45°</button>
+        </div>
+
+        <div>
+          <label class="field-label">Show labels</label>
+          <div class="checks">
+            <label><input type="checkbox" id="showPxLabels" checked> px</label>
+            <label><input type="checkbox" id="showCalibratedLabels" checked> calibrated</label>
+            <label><input type="checkbox" id="showAngleLabels" checked> angles</label>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">Label scale <span id="labelScaleDisplay">100%</span></label>
+          <input type="range" id="labelScale" min="1" max="500" step="1" value="100" style="width:100%">
         </div>
       </div>
 
-      <div style="border:1px solid #555; border-radius:6px; padding:10px 12px; margin-top:25px">
-        <div class="small" style="align-items:flex-start">
-          <div style="flex:1">
-            <label>Zoom</label>
-            <input id="zoomInput" type="number" min="0.1" max="20" step="0.1" value="1.00" style="width:64px; background:#444; color:#eee; border:1px solid #666; border-radius:4px; padding:4px 6px; font-size:14px; margin-top:4px" />
-          </div>
-          <div style="flex:2; padding-left:8px">
-            <label>Position</label>
-            <div id="posDisplay">X: 0 &nbsp; Y: 0</div>
-          </div>
-          <div style="width:80px">
-            <button id="resetView" class="btn">Reset View</button>
-          </div>
-        </div>
-        <div class="small" style="margin-top:6px">
-          <button id="rotateLeft" class="btn"><span style="font-size:1.8em; line-height:1; ">&#8634;</span> <span style="vertical-align:0.15em">45&deg;</span></button>
-          <button id="rotateRight" class="btn"><span style="font-size:1.8em; line-height:1; ">&#8635;</span> <span style="vertical-align:0.15em">45&deg;</span></button>
+      <!-- EXPORT -->
+      <div class="section">
+        <p class="section-title">Export</p>
+        <div style="display:flex; justify-content:center">
+          <button id="saveBtn" class="btn btn-success" style="width:75%">Save Output</button>
         </div>
       </div>
 
-      <div class="small" style="margin-top:20px">
-        <button id="undoBtn" class="btn" style="background:#7a7040; color:#f5f0c8">Undo</button>
-        <button id="redoBtn" class="btn" style="background:#7a7040; color:#f5f0c8">Redo</button>
-      </div>
 
-      <button id="saveBtn" class="btn" style="background:#2a6; color:#fff; margin-top:20px">Save Output</button>
-
-      <div style="margin-top:auto; margin-bottom:40px; display:flex; justify-content:center; border:1px solid #555; border-radius:6px; padding:10px 12px">
-        <button id="toggleInstructions" class="btn" style="width:66%" onclick="(function(){
+      <div style="margin-top:auto; padding-top:10px">
+        <button id="toggleInstructions" class="btn btn-ghost btn-block" onclick="(function(){
           var p = document.getElementById('instructionsPanel');
           p.style.display = p.style.display === 'none' ? 'block' : 'none';
         })()">Toggle Instructions</button>
       </div>
 
-      <div style="font-size:12px; color:#999">
-        Dimensioner version 1.3.4 <br> by Chris Bovee <br>
-         JS + HTML
+      <div class="sidebar-footer">
+        <strong>Dimensioner</strong> v1.4<br>
+        by Chris Bovee &middot; JS + HTML
       </div>
     </div>
 
@@ -260,7 +525,7 @@
     </div>
 
     <!-- Unified status bar -->
-    <div id="statusBar" style="display:none; position:fixed; top:16px; left:276px; background:#333; border:1px solid #555; border-radius:6px; padding:10px 16px; color:#eee; font-size:14px; z-index:50;"></div>
+    <div id="statusBar" style="display:none; position:fixed; top:16px; left:300px; background:#333; border:1px solid #555; border-radius:6px; padding:10px 22px; color:#eee; font-size:14px; z-index:50;"></div>
 
     <!-- Save modal -->
     <div id="saveModal">
@@ -281,7 +546,7 @@
   </div>
 
   <!-- Your p5.js sketch -->
-  <script src="sketch.js?v=2"></script>
+  <script src="sketch.js?v=5"></script>
 
   <script>
     (function() {

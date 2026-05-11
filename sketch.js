@@ -3,6 +3,7 @@ let imgX = 0, imgY = 0;
 let zoom = 1.0;
 let viewAngle = 0;
 const ZOOM_STEP = 0.1;
+const ZOOM_FACTOR = 1.12; // multiplicative zoom per scroll tick / keypress
 const PAN_STEP = 20;
 
 let lines = [];
@@ -41,9 +42,33 @@ let _ckX=0,_ckY=0,_ckS=0;
 let calibrationLine = null;
 let pixelsPerUnit = 0;
 
-let measureAngleMode = false;
-let angleLines = [];
+let measureAngleMode = false;let angleLines = [];
 let drawGridMode = false;
+// Active drawing tool: 'line' | 'angle' | 'grid'. Default is line.
+let currentTool = 'line';
+// Tool to restore after Draw Grid completes/cancels.
+let toolBeforeGrid = 'line';
+
+function setActiveTool(tool) {
+  currentTool = tool;
+  const ids = { line: 'drawLineBtn', angle: 'measureAngleBtn', grid: 'drawGridBtn' };
+  Object.keys(ids).forEach(k => {
+    const el = document.getElementById(ids[k]);
+    if (!el) return;
+    el.classList.toggle('tool-active', k === tool);
+  });
+  const lineOpts = document.getElementById('lineToolOptions');
+  const gridOpts = document.getElementById('gridToolOptions');
+  if (gridOpts) gridOpts.style.display = (tool === 'grid') ? '' : 'none';
+}
+
+function flashToolError(toolKey) {
+  const ids = { line: 'drawLineBtn', angle: 'measureAngleBtn', grid: 'drawGridBtn' };
+  const el = document.getElementById(ids[toolKey]);
+  if (!el) return;
+  el.classList.add('tool-error');
+  setTimeout(() => el.classList.remove('tool-error'), 600);
+}
 let gridLines = [];
 let gridDivisionsX = 2; // cross lines (parallel to A/B)
 let gridDivisionsY = 2; // along lines (parallel to connectors)
@@ -51,6 +76,7 @@ let gridVpMode = false;
 let showPxLabels = true;
 let showCalibratedLabels = true;
 let showAngleLabels = true;
+let labelScale = 1.0;
 let angleLabels = [];
 let reverseLineActive = false;
 let selectedAngleLabels = [];
@@ -58,6 +84,11 @@ let _angleCkX = 0, _angleCkY = 0, _angleCkS = 0;
 let selectedAngleLabel = null;
 let angleLabelDragging = false;
 let statusFadeTimer = null;
+
+// Adaptive label-placement: labels slide along their lines to avoid overlap.
+// Solver runs only when labelsDirty is set (after add/delete/move/zoom/toggle).
+let labelsDirty = true;
+function markLabelsDirty() { labelsDirty = true; }
 
 function showStatus(msg, isError) {
   if (statusFadeTimer) { clearTimeout(statusFadeTimer); statusFadeTimer = null; }
@@ -115,9 +146,13 @@ function downloadBlob(content, filename, type) {
   a.click();
 }
 
-let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn, drawGridBtn;
+let fileInput, openBtn, colorPicker, zoomDisplay, posDisplay, resetView, resetLines, resetImage, undoBtn, redoBtn, rotateLeftBtn, rotateRightBtn, saveBtn, measureAngleBtn, drawGridBtn, drawLineBtn;
 let redoStack = []; // history of actions (tagged {type,item})
 let undoStack = []; // undone actions available to redo
+
+// Logarithmic zoom mapping: slider 0-1000 → zoom 0.05x-20x, midpoint 500 = 1x
+function sliderToZoom(s) { return 0.05 * Math.pow(400, s / 1000); }
+function zoomToSlider(z) { return Math.log(z / 0.05) / Math.log(400) * 1000; }
 
 function setup() {
   const holder = document.getElementById('canvas-holder');
@@ -139,16 +174,24 @@ function setup() {
     } else if (selectedLine) {
       selectedLine.col = currentLineColor;
     }
+    if (selectedAngleLabels.length > 0) {
+      for (let al of selectedAngleLabels) al.col = currentLineColor;
+    } else if (selectedAngleLabel) {
+      selectedAngleLabel.col = currentLineColor;
+    }
   });
 
+  // Logarithmic zoom mapping: slider 0-1000 → zoom 0.05x-20x, midpoint 500 = 1x
   document.getElementById('zoomInput').addEventListener('input', function() {
-    let v = parseFloat(this.value);
-    if (v > 0) { zoomAboutCenter(v); }
-    // if empty/invalid, do nothing — wait for Enter or blur
+    let v = sliderToZoom(parseInt(this.value));
+    if (v > 0) {
+      zoomAboutCenter(v);
+      let zDisp = document.getElementById('zoomDisplay');
+      if (zDisp) zDisp.textContent = nf(v, 1, 2) + '\u00d7';
+    }
   });
   document.getElementById('zoomInput').addEventListener('change', function() {
-    let v = parseFloat(this.value);
-    if (!(v > 0)) this.value = nf(zoom,1,2); // restore on blur/Enter if still invalid
+    // nothing needed — slider always has a valid value
   });
 
   document.getElementById('thicknessPicker').addEventListener('input', function() {
@@ -159,6 +202,11 @@ function setup() {
         for (let ln of selectedLines) ln.weight = currentLineWeight;
       } else if (selectedLine) {
         selectedLine.weight = currentLineWeight;
+      }
+      if (selectedAngleLabels.length > 0) {
+        for (let al of selectedAngleLabels) al.weight = currentLineWeight;
+      } else if (selectedAngleLabel) {
+        selectedAngleLabel.weight = currentLineWeight;
       }
     }
   });
@@ -195,10 +243,12 @@ function setup() {
   });
   document.getElementById('resetLinesYes').addEventListener('click', ()=> {
     document.getElementById('resetLinesDialog').style.display = 'none';
-    lines = []; redoStack = []; undoStack = [];
+    lines = []; redoStack = []; undoStack = []; markLabelsDirty();
     calibrationLine = null; pixelsPerUnit = 0;
     selectedLine = null; selectedLines = []; inputFocused = false;
     angleLabels = []; selectedAngleLabel = null; selectedAngleLabels = []; angleLabelDragging = false;
+    gridLines = []; drawGridMode = false; measureAngleMode = false; angleLines = [];
+    setActiveTool('line');
   });
   document.getElementById('resetLinesNo').addEventListener('click', ()=> {
     document.getElementById('resetLinesDialog').style.display = 'none';
@@ -237,16 +287,35 @@ function setup() {
     if (e.key === 'Enter') { e.stopPropagation(); gridDivAlong.blur(); }
   });
 
-  document.getElementById('showPxLabels').addEventListener('change', function() { showPxLabels = this.checked; });
-  document.getElementById('showCalibratedLabels').addEventListener('change', function() { showCalibratedLabels = this.checked; });
+  document.getElementById('showPxLabels').addEventListener('change', function() { showPxLabels = this.checked; markLabelsDirty(); });
+  document.getElementById('showCalibratedLabels').addEventListener('change', function() { showCalibratedLabels = this.checked; markLabelsDirty(); });
   document.getElementById('showAngleLabels').addEventListener('change', function() { showAngleLabels = this.checked; });
+  document.getElementById('labelScale').addEventListener('input', function() {
+    labelScale = parseFloat(this.value) / 100;
+    document.getElementById('labelScaleDisplay').textContent = this.value + '%';
+  });
 
   const gridSpacingToggle = document.getElementById('gridSpacingToggle');
   gridSpacingToggle.addEventListener('click', () => {
     gridVpMode = !gridVpMode;
     gridSpacingToggle.textContent = gridVpMode ? '2VP Spacing' : 'Affine Spacing';
-    gridSpacingToggle.style.background = '#466';
-    gridSpacingToggle.style.color = '#aff';
+    gridSpacingToggle.style.background = '#446';
+    gridSpacingToggle.style.color = '#bbc';
+  });
+
+  drawLineBtn = select('#drawLineBtn');
+  drawLineBtn.mousePressed(() => {
+    // Cancel any in-progress angle/grid and return to default line tool.
+    if (drawGridMode || gridLines.length > 0) {
+      drawGridMode = false;
+      gridLines = [];
+    }
+    if (measureAngleMode || angleLines.length > 0) {
+      measureAngleMode = false;
+      angleLines = [];
+    }
+    hideStatus();
+    setActiveTool('line');
   });
 
   drawGridBtn = select('#drawGridBtn');
@@ -255,12 +324,18 @@ function setup() {
       drawGridMode = false;
       gridLines = [];
       hideStatus();
+      setActiveTool(toolBeforeGrid || 'line');
       return;
     }
     if (lines.length < 2) {
+      // Not enough lines: don't switch tools, just flash red and warn.
+      flashToolError('grid');
       showStatus('Not enough lines', true);
       return;
     }
+    // Remember which tool we were on so we can restore after grid finishes.
+    toolBeforeGrid = (currentTool === 'grid') ? 'line' : currentTool;
+    setActiveTool('grid');
     drawGridMode = true;
     gridLines = [];
     if (lines.length === 2) {
@@ -270,6 +345,7 @@ function setup() {
     } else if (selectedLines.length > 2) {
       drawGridMode = false;
       showStatus('Too many lines selected. Select two lines.', true);
+      return;
     } else if (selectedLines.length === 2) {
       gridLines = [selectedLines[0], selectedLines[1]];
       selectedLine = null; selectedLines = []; inputFocused = false;
@@ -289,29 +365,36 @@ function setup() {
       measureAngleMode = false;
       angleLines = [];
       hideStatus();
+      setActiveTool('line');
       return;
     }
     if (lines.length < 2) {
+      flashToolError('angle');
       showStatus('Not enough lines', true);
+      setTimeout(() => hideStatus(), 1500);
+      return;
+    }
+    setActiveTool('angle');
+    measureAngleMode = true;
+    angleLines = [];
+    if (lines.length === 2) {
+      angleLines = [lines[0], lines[1]];
+      selectedLine = null; inputFocused = false;
+      showStatus('Click to place angle label');
+    } else if (selectedLine) {
+      angleLines.push(selectedLine);
+      selectedLine = null;
+      inputFocused = false;
+      showStatus('Select second line');
     } else {
-      measureAngleMode = true;
-      angleLines = [];
-      if (lines.length === 2) {
-        angleLines = [lines[0], lines[1]];
-        selectedLine = null; inputFocused = false;
-        showStatus('Click to place angle label');
-      } else if (selectedLine) {
-        angleLines.push(selectedLine);
-        selectedLine = null;
-        inputFocused = false;
-        showStatus('Select second line');
-      } else {
-        selectedLine = null;
-        inputFocused = false;
-        showStatus('Select first line');
-      }
+      selectedLine = null;
+      inputFocused = false;
+      showStatus('Select first line');
     }
   });
+
+  // Initial highlight: Draw Line is the default tool.
+  setActiveTool('line');
 
   textFont('Arial');
 }
@@ -366,6 +449,31 @@ function toScreenCoords(ix, iy) {
 function draw() {
   background(40);
 
+  // Re-run label collision solver every frame so labels reflow live during
+  // drags and selection. When drawing a new line, pass it in so existing
+  // labels dodge it too.
+  let previewLabelT = 0.5;
+  if (showPxLabels || showCalibratedLabels) {
+    let previewEntry = null;
+    if (dragging) {
+      const _ic1 = toImgCoords(dragStartX, dragStartY);
+      const _ic2raw = toImgCoords(mouseX, mouseY);
+      const _ic2 = snapEndpoint(_ic1.x, _ic1.y, _ic2raw.x, _ic2raw.y);
+      const _sp1 = toScreenCoords(_ic1.x, _ic1.y);
+      const _sp2 = toScreenCoords(_ic2.x, _ic2.y);
+      const _vx = _sp2.x - _sp1.x, _vy = _sp2.y - _sp1.y;
+      const _len = Math.hypot(_vx, _vy);
+      if (_len >= 4) {
+        const _pxLabel = nf(dist(_ic1.x, _ic1.y, _ic2.x, _ic2.y), 1, 1) + ' px';
+        textSize(12 * labelScale * zoom);
+        const _w = textWidth(_pxLabel) + 8 * labelScale * zoom;
+        previewEntry = { sp1x: _sp1.x, sp1y: _sp1.y, vx: _vx, vy: _vy, len: _len, w: _w, h: 22 * labelScale * zoom, ln: null };
+      }
+    }
+    previewLabelT = relaxLabels(previewEntry);
+  }
+  labelsDirty = false;
+
   push();
   translate(width/2, height/2);
   rotate(viewAngle);
@@ -380,13 +488,23 @@ function draw() {
   }
   noFill();
   let flashOn = floor(millis() / 300) % 2 === 0;
+  // When user is editing a selected line's input, dim everything else
+  // so the selected line stands out.
+  let dimOthers = inputFocused && selectedLine;
   for (let ln of lines) {
     let drawCol = ln.col;
     if (selectedLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     if (angleLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
     if (gridLines.includes(ln) && !flashOn) drawCol = invertColor(drawCol);
-    strokeWeight((ln.weight || 1.5) / zoom);
-    stroke(drawCol);
+    let dim = dimOthers && ln !== selectedLine;
+    strokeWeight(ln.weight || 1.5);
+    if (dim) {
+      let c = color(drawCol);
+      c.setAlpha(60);
+      stroke(c);
+    } else {
+      stroke(drawCol);
+    }
     line(ln.x1, ln.y1, ln.x2, ln.y2);
   }
   // Draw Grid preview lines
@@ -396,8 +514,8 @@ function draw() {
     let gst = document.getElementById('gridSpacingToggle');
     if (gst) {
       let concave = gridVpMode && !isGridQuadConvex(gridLines[0], gridLines[1]);
-      gst.style.background = concave ? '#633' : '#466';
-      gst.style.color = concave ? '#faa' : '#aff';
+      gst.style.background = concave ? '#633' : '#446';
+      gst.style.color = concave ? '#faa' : '#bbc';
     }
     stroke(currentLineColor);
     drawingContext.setLineDash([8 / zoom, 6 / zoom]);
@@ -410,13 +528,13 @@ function draw() {
   } else {
     // Not in grid drawing mode — ensure toggle button stays teal
     let gst = document.getElementById('gridSpacingToggle');
-    if (gst) { gst.style.background = '#466'; gst.style.color = '#aff'; }
+    if (gst) { gst.style.background = '#446'; gst.style.color = '#bbc'; }
   }
   if (dragging) {
     let ic1 = toImgCoords(dragStartX, dragStartY);
     let ic2raw = toImgCoords(mouseX, mouseY);
     let ic2 = snapEndpoint(ic1.x, ic1.y, ic2raw.x, ic2raw.y);
-    strokeWeight(currentLineWeight / zoom);
+    strokeWeight(currentLineWeight);
     stroke(currentLineColor);
     line(ic1.x, ic1.y, ic2.x, ic2.y);
   }
@@ -500,7 +618,10 @@ function draw() {
   for (let ln of lines) {
     let sp1 = toScreenCoords(ln.x1, ln.y1);
     let sp2 = toScreenCoords(ln.x2, ln.y2);
-    drawLengthLabel(sp1.x, sp1.y, sp2.x, sp2.y, ln.imgLen, ln.col, ln === selectedLine, ln.customValue, ln === calibrationLine);
+    let dim = dimOthers && ln !== selectedLine;
+    if (dim) drawingContext.globalAlpha = 0.25;
+    drawLengthLabel(sp1.x, sp1.y, sp2.x, sp2.y, ln.imgLen, ln.col, ln === selectedLine, ln.customValue, ln === calibrationLine, ln.labelT);
+    if (dim) drawingContext.globalAlpha = 1;
   }
 
   if (dragging) {
@@ -510,16 +631,22 @@ function draw() {
     let sp2 = toScreenCoords(ic2.x, ic2.y);
     let previewLen = dist(ic1.x, ic1.y, ic2.x, ic2.y);
     let sp1s = toScreenCoords(ic1.x, ic1.y);
-    drawLengthLabel(sp1s.x, sp1s.y, sp2.x, sp2.y, previewLen, currentLineColor, false, "", false);
+    drawLengthLabel(sp1s.x, sp1s.y, sp2.x, sp2.y, previewLen, currentLineColor, false, "", false, previewLabelT);
   }
 
-  if (document.activeElement !== zoomDisplay.elt) zoomDisplay.elt.value = nf(zoom,1,2);
-  posDisplay.html('X:&nbsp;' + floor(imgX) + '<br>Y:&nbsp;' + floor(imgY));
+  if (document.activeElement !== zoomDisplay.elt) {
+    zoomDisplay.elt.value = Math.round(zoomToSlider(zoom));
+    let zDisp = document.getElementById('zoomDisplay');
+    if (zDisp) zDisp.textContent = nf(zoom,1,2) + '\u00d7';
+  }
+  posDisplay.html('X:&nbsp;' + floor(imgX) + '&nbsp;&nbsp;Y:&nbsp;' + floor(imgY));
 
   // Draw confirmed angle labels
   for (let al of angleLabels) {
     let inter = lineIntersection(al.line1, al.line2);
     if (!inter) continue;
+    let dim = dimOthers && al.line1 !== selectedLine && al.line2 !== selectedLine;
+    if (dim) drawingContext.globalAlpha = 0.25;
     let sp = toScreenCoords(inter.x, inter.y);
     let slabel = toScreenCoords(al.lx, al.ly);
     let r = dist(sp.x, sp.y, slabel.x, slabel.y);
@@ -533,6 +660,7 @@ function draw() {
     stroke(arcCol);
     arc(sp.x, sp.y, r * 2, r * 2, arcA.start, arcA.stop, OPEN);
     if (showAngleLabels) drawAngleLabel(slabel.x, slabel.y, angleDeg, false);
+    if (dim) drawingContext.globalAlpha = 1;
   }
 
   // Draw live angle preview when two lines are selected
@@ -553,11 +681,121 @@ function draw() {
   }
 }
 
-function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, isCalib) {
+// Returns the resolved t for the preview entry if one was supplied, else 0.5.
+function relaxLabels(previewEntry) {
+  if (!showPxLabels && !showCalibratedLabels) return 0.5;
+
+  textSize(12 * labelScale * zoom);
+  const pad = 4 * labelScale * zoom;
+  const boxH1 = 22 * labelScale * zoom;
+  const boxH2 = 48 * labelScale * zoom;
+  const labs = [];
+
+  for (let ln of lines) {
+    const sp1 = toScreenCoords(ln.x1, ln.y1);
+    const sp2 = toScreenCoords(ln.x2, ln.y2);
+    const vx = sp2.x - sp1.x, vy = sp2.y - sp1.y;
+    const len = Math.hypot(vx, vy);
+    if (len < 4) { ln.labelT = 0.5; continue; }
+
+    const pxLabel = nf(ln.imgLen, 1, 1) + ' px';
+    let w = textWidth(pxLabel) + pad * 2;
+    const hasValue = ln.customValue && ln.customValue.length > 0;
+    const isCalib = ln === calibrationLine;
+    const showUnits = !isCalib && pixelsPerUnit > 0;
+    const hasSecond = showCalibratedLabels && ((isCalib && hasValue) || showUnits);
+    if (hasSecond) {
+      const sec = (isCalib && hasValue)
+        ? (ln.customValue + ' units')
+        : (nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units');
+      w = Math.max(w, textWidth(sec) + pad * 2);
+    }
+    if (!showPxLabels && !hasSecond) continue;
+
+    const h = hasSecond ? boxH2 : boxH1;
+    // Always start from the midpoint — this is deterministic and encodes the
+    // centering preference without needing a spring. Repulsion pushes outward
+    // from there; since we always solve from the same starting point, the
+    // same line configuration always yields the same label positions.
+    labs.push({
+      ln, sp1x: sp1.x, sp1y: sp1.y, vx, vy, len, w, h,
+      t: 0.5,
+      cx: sp1.x + vx * 0.5,
+      cy: sp1.y + vy * 0.5
+    });
+  }
+
+  // Add preview entry (line currently being drawn) so it pushes existing labels
+  let previewLab = null;
+  if (previewEntry) {
+    previewLab = Object.assign({ t: 0.5 }, previewEntry);
+    previewLab.cx = previewLab.sp1x + previewLab.vx * 0.5;
+    previewLab.cy = previewLab.sp1y + previewLab.vy * 0.5;
+    labs.push(previewLab);
+  }
+
+  if (labs.length < 2) {
+    for (const l of labs) if (l.ln) l.ln.labelT = 0.5;
+    return previewLab ? previewLab.t : 0.5;
+  }
+
+  const MAX_ITER = 60;
+  const MIN_T = 0.05, MAX_T = 0.95;
+  const GAP = 18;
+
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let totalMove = 0;
+    for (let i = 0; i < labs.length; i++) {
+      const a = labs[i];
+      for (let j = i + 1; j < labs.length; j++) {
+        const b = labs[j];
+        const overlapX = (a.w + b.w) / 2 + GAP - Math.abs(a.cx - b.cx);
+        if (overlapX <= 0) continue;
+        const overlapY = (a.h + b.h) / 2 + GAP - Math.abs(a.cy - b.cy);
+        if (overlapY <= 0) continue;
+
+        // Resolve along the smaller-overlap axis, split evenly, full force
+        let pushX, pushY;
+        if (overlapX < overlapY) {
+          pushX = (a.cx >= b.cx ? 1 : -1) * overlapX;
+          pushY = 0;
+        } else {
+          pushX = 0;
+          pushY = (a.cy >= b.cy ? 1 : -1) * overlapY;
+        }
+
+        const aPushPx = (pushX * a.vx + pushY * a.vy) / a.len * 0.5;
+        const bPushPx = -(pushX * b.vx + pushY * b.vy) / b.len * 0.5;
+        const aDt = aPushPx / a.len;
+        const bDt = bPushPx / b.len;
+
+        const newAt = Math.max(MIN_T, Math.min(MAX_T, a.t + aDt));
+        const newBt = Math.max(MIN_T, Math.min(MAX_T, b.t + bDt));
+
+        totalMove += Math.abs(newAt - a.t) * a.len + Math.abs(newBt - b.t) * b.len;
+
+        a.t = newAt; a.cx = a.sp1x + a.vx * newAt; a.cy = a.sp1y + a.vy * newAt;
+        b.t = newBt; b.cx = b.sp1x + b.vx * newBt; b.cy = b.sp1y + b.vy * newBt;
+      }
+    }
+    if (totalMove < 0.5) break;
+  }
+
+  for (const l of labs) if (l.ln) l.ln.labelT = l.t;
+  return previewLab ? previewLab.t : 0.5;
+}
+
+function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, isCalib, t) {
   if (!showPxLabels && !showCalibratedLabels && !selected) return;
   let pxLabel = nf(len, 1, 1) + ' px';
-  let cx = (x1 + x2) / 2;
-  let cy = (y1 + y2) / 2;
+  let tt = (typeof t === 'number') ? t : 0.5;
+  let cx = x1 + (x2 - x1) * tt;
+  let cy = y1 + (y2 - y1) * tt;
+
+  push();
+  translate(cx, cy);
+  scale(labelScale * zoom);
+  translate(-cx, -cy);
 
   textSize(12);
   textAlign(CENTER, CENTER);
@@ -583,7 +821,9 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
   let inW = max(80, tw + pad*2);
   let inH = boxH;
   let inX = cx - inW/2;
-  let inY = cy + boxH/2 + 4;
+  // Second box must sit flush below the (possibly shifted) px box so the
+  // combined pair is truly centred at cy and matches the solver's AABB.
+  let inY = cy + labelOffsetY + boxH/2 + 4;
 
   if (selected) {
     let ckS = boxH;
@@ -613,7 +853,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     textSize(12);
 
   } else if (isCalib && hasValue) {
-    if (!showCalibratedLabels) return;
+    if (!showCalibratedLabels) { pop(); return; }
     noStroke();
     fill(0,180);
     rect(inX, inY, inW, inH, 3);
@@ -627,7 +867,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     text(customValue + ' units', inX + inW/2, inY + inH/2);
 
   } else if (showUnits) {
-    if (!showCalibratedLabels) return;
+    if (!showCalibratedLabels) { pop(); return; }
     let unitLen = len / pixelsPerUnit;
     let unitLabel = nf(unitLen, 1, 2) + ' units';
     let uw = max(inW, textWidth(unitLabel) + pad*2);
@@ -639,6 +879,7 @@ function drawLengthLabel(x1, y1, x2, y2, len, lineCol, selected, customValue, is
     textAlign(CENTER, CENTER);
     text(unitLabel, ux + uw/2, inY + inH/2);
   }
+  pop();
 }
 
 function lineIntersection(ln1, ln2) {
@@ -663,6 +904,10 @@ function angleBetweenLines(ln1, ln2) {
 
 function drawAngleLabel(sx, sy, angleDeg, inverted) {
   let label = nf(angleDeg, 1, 1) + '\u00b0';
+  push();
+  translate(sx, sy);
+  scale(labelScale * zoom);
+  translate(-sx, -sy);
   textSize(12);
   textAlign(CENTER, CENTER);
   let tw = textWidth(label);
@@ -676,6 +921,7 @@ function drawAngleLabel(sx, sy, angleDeg, inverted) {
   rect(sx - boxW / 2, sy - boxH / 2, boxW, boxH, 3);
   fill(inverted ? 0 : 255);
   text(label, sx, sy);
+  pop();
 }
 
 // Returns harmonic parameter t such that 1/dist(P(t), vp) is linearly spaced
@@ -796,15 +1042,21 @@ function buildGridLines(a, b, Nx, Ny, vpMode) {
 function confirmGrid() {
   if (gridLines.length < 2) return;
   let segs = buildGridLines(gridLines[0], gridLines[1], gridDivisionsX, gridDivisionsY, gridVpMode);
+  let addedLines = [];
   for (let s of segs) {
     let ln = new DrawnLine(s.x1, s.y1, s.x2, s.y2, currentLineColor, currentLineWeight);
     lines.push(ln);
-    redoStack.push({ type: 'line', item: ln });
+    addedLines.push(ln);
+  }
+  if (addedLines.length > 0) {
+    redoStack.push({ type: 'gridlines', items: addedLines });
   }
   undoStack = [];
   drawGridMode = false;
   gridLines = [];
   hideStatus();
+  setActiveTool(toolBeforeGrid || 'line');
+  markLabelsDirty();
 }
 
 function confirmAngle(mx, my) {
@@ -822,6 +1074,7 @@ function confirmAngle(mx, my) {
   angleLines = [];
   measureAngleMode = false;
   hideStatus();
+  setActiveTool('line');
 }
 
 function getSectorArcAngles(inter_sp, ln1, ln2, mx, my) {
@@ -1382,16 +1635,18 @@ function mouseReleased() {
     }
     dragging = false;
   }
+  markLabelsDirty();
 }
 
 function mouseWheel(event) {
   let delta = event.deltaY > 0 ? 1 : -1;
   let mx = mouseX, my = mouseY;
   let prevZoom = zoom;
-  zoom = max(0.05, zoom - delta * ZOOM_STEP);
+  zoom = max(0.05, delta < 0 ? zoom * ZOOM_FACTOR : zoom / ZOOM_FACTOR);
   let scale = zoom / prevZoom;
   imgX = mx + (imgX - mx) * scale;
   imgY = my + (imgY - my) * scale;
+  markLabelsDirty();
   return false;
 }
 
@@ -1415,6 +1670,20 @@ function keyPressed() {
     return;
   }
 
+  // In grid mode, Delete/Backspace deselects the last (or both) grid reference lines.
+  if (drawGridMode && (keyCode === DELETE || keyCode === BACKSPACE)) {
+    if (gridLines.length > 0) {
+      gridLines.pop();
+      if (gridLines.length === 0) {
+        showStatus('Select first line');
+      } else {
+        showStatus('Select second line');
+      }
+      markLabelsDirty();
+    }
+    return;
+  }
+
   if (inputFocused) {
     if (keyCode === ENTER) { confirmInput(); return; }
     else if (keyCode === BACKSPACE) {
@@ -1428,12 +1697,14 @@ function keyPressed() {
       drawGridMode = false;
       gridLines = [];
       hideStatus();
+      setActiveTool(toolBeforeGrid || 'line');
       return;
     }
     if (measureAngleMode || angleLines.length > 0) {
       measureAngleMode = false;
       angleLines = [];
       hideStatus();
+      setActiveTool('line');
       return;
     }
   }
@@ -1444,6 +1715,7 @@ function keyPressed() {
     redoStack = redoStack.filter(e => e.item !== deleted);
     undoStack = undoStack.filter(e => e.item !== deleted);
     selectedAngleLabel = null; angleLabelDragging = false;
+    markLabelsDirty();
     return;
   }
 
@@ -1467,6 +1739,14 @@ function keyPressed() {
       return true;
     });
     selectedLine = null; selectedLines = []; inputFocused = false;
+    // If we were drawing a grid and now don't have enough lines, cancel and revert.
+    if ((drawGridMode || gridLines.length > 0) && lines.length < 2) {
+      drawGridMode = false;
+      gridLines = [];
+      setActiveTool('line');
+      showStatus('Not enough lines', true);
+    }
+    markLabelsDirty();
     return;
   }
 
@@ -1481,9 +1761,9 @@ function keyPressed() {
   }
 
   if (key === '-' || key === '_') {
-    zoomAboutCenter(max(0.05, zoom - ZOOM_STEP));
+    zoomAboutCenter(max(0.05, zoom / ZOOM_FACTOR));
   } else if (key === '=' || key === '+') {
-    zoomAboutCenter(zoom + ZOOM_STEP);
+    zoomAboutCenter(zoom * ZOOM_FACTOR);
   } else if (keyCode === LEFT_ARROW || keyCode === RIGHT_ARROW || keyCode === UP_ARROW || keyCode === DOWN_ARROW) {
     let focused = document.activeElement;
     if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) return;
@@ -1522,8 +1802,9 @@ function drawLabelsOnGraphics(g, ox, oy) {
   let th = 14;
   let boxH = th + pad * 2;
   for (let ln of lines) {
-    let cx = (ln.x1 + ln.x2) / 2 - ox;
-    let cy = (ln.y1 + ln.y2) / 2 - oy;
+    let _t = (typeof ln.labelT === 'number') ? ln.labelT : 0.5;
+    let cx = ln.x1 + (ln.x2 - ln.x1) * _t - ox;
+    let cy = ln.y1 + (ln.y2 - ln.y1) * _t - oy;
     let pxLabel = nf(ln.imgLen, 1, 1) + ' px';
     let hasUnits = pixelsPerUnit > 0 && ln !== calibrationLine;
     let unitLabel = (showCalibratedLabels && hasUnits) ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
@@ -1645,8 +1926,9 @@ function saveOutput() {
       let svgPad = 4, svgTh = 14, svgBoxH = svgTh + svgPad * 2;
       if (showPxLabels || showCalibratedLabels) {
         for (let ln of lines) {
-          let cx2 = (ln.x1 + ln.x2) / 2 - ox;
-          let cy2 = (ln.y1 + ln.y2) / 2 - oy;
+          let _t = (typeof ln.labelT === 'number') ? ln.labelT : 0.5;
+          let cx2 = ln.x1 + (ln.x2 - ln.x1) * _t - ox;
+          let cy2 = ln.y1 + (ln.y2 - ln.y1) * _t - oy;
           let pxL = nf(ln.imgLen, 1, 1) + ' px';
           let hasU = pixelsPerUnit > 0 && ln !== calibrationLine;
           let unitL = (showCalibratedLabels && hasU) ? nf(ln.imgLen / pixelsPerUnit, 1, 2) + ' units' : null;
@@ -1730,7 +2012,13 @@ function saveOutput() {
 }
 
 function doUndo() {
-  drawGridMode = false; gridLines = []; hideStatus();
+  markLabelsDirty();
+  if (drawGridMode || gridLines.length > 0) {
+    drawGridMode = false;
+    gridLines = [];
+    setActiveTool(toolBeforeGrid || 'line');
+  }
+  hideStatus();
   // Walk back through redoStack (which is our history) from the end
   for (let i = redoStack.length - 1; i >= 0; i--) {
     let entry = redoStack[i];
@@ -1738,6 +2026,18 @@ function doUndo() {
       angleLabels = angleLabels.filter(al => al !== entry.item);
       if (selectedAngleLabel === entry.item) { selectedAngleLabel = null; angleLabelDragging = false; }
       selectedAngleLabels = selectedAngleLabels.filter(al => al !== entry.item);
+      redoStack.splice(i, 1);
+      undoStack.push(entry);
+      return;
+    }
+    if (entry.type === 'gridlines') {
+      for (let ln of entry.items) {
+        lines = lines.filter(l => l !== ln);
+        if (ln === calibrationLine) { calibrationLine = null; pixelsPerUnit = 0; }
+        if (ln === selectedLine) { selectedLine = null; inputFocused = false; }
+        selectedLines = selectedLines.filter(l => l !== ln);
+        angleLabels = angleLabels.filter(al => al.line1 !== ln && al.line2 !== ln);
+      }
       redoStack.splice(i, 1);
       undoStack.push(entry);
       return;
@@ -1792,9 +2092,15 @@ function doUndo() {
 }
 
 function doRedo() {
+  markLabelsDirty();
   if (undoStack.length > 0) {
     let entry = undoStack.pop();
-    if (entry.type === 'line') {
+    if (entry.type === 'gridlines') {
+      for (let ln of entry.items) {
+        lines.push(ln);
+      }
+      redoStack.push(entry);
+    } else if (entry.type === 'line') {
       lines.push(entry.item);
       redoStack.push(entry);
     } else if (entry.type === 'arc') {
@@ -1834,6 +2140,7 @@ function zoomAboutCenter(newZoom) {
   imgX = cx + (imgX - cx) * scale;
   imgY = cy + (imgY - cy) * scale;
   zoom = newZoom;
+  markLabelsDirty();
 }
 
 function confirmInput() {
@@ -1850,6 +2157,7 @@ function confirmInput() {
   inputFocused = false;
   selectedLine = null; selectedLines = [];
   selectedAngleLabel = null; selectedAngleLabels = [];
+  markLabelsDirty();
 }
 
 class DrawnLine {
@@ -1862,6 +2170,7 @@ class DrawnLine {
     this.col = col;
     this.weight = weight || 1.5;
     this.customValue = "";
+    this.labelT = 0.5; // parametric position of length label along line (0..1)
   }
 }
 

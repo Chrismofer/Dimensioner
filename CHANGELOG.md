@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-05-11 v1.4
+
+- line drawing now a distinct mode with a button
+- adaptive label placement: labels move to avoid overlapping (deterministic AABB collision relaxer)
+- all labels scale proportionally with canvas zoom; separate Label Scale slider (1–500%) for manual control
+- dim-on-edit: non-selected lines and angle arcs dim to 25% opacity while a line input is focused
+- zoom level response fix. was linear and got sluggish at higher zoom.
+- Major sidebar redesign, more attractive with simpler operation.
+- error states revised
+- grid spacing toggle repositioned and recolored (indigo / red-on-error)
+- grid drawing now considered a single event in undo / redo
+
 ## 2026-04-14 v1.3.4
 
 - ease of use fixes with the grid tool and line selection.
