@@ -12,10 +12,9 @@ Dimensioner is for measuring real-world dimensions from images, technical drawin
 While ideal for drawings and renders that are orthographic or isometric, it also handles perspective distortion using the grid tool in 2VP mode.
 
 The workflow is simple:
-1. Load an image where at least one dimension is already known
-2. Draw a line over that known feature and enter its real-world value to **calibrate** the scale
-3. Draw lines over anything else you want to measure. it will calculate and display the real-world dimensions.
-
+1. Load an image
+2. Draw a line over that known feature and enter its real-world length to **calibrate** the scale
+3. Draw additional lines over anything you want to measure. each line's dimensioned length will be displayed.
 
 <img width="1644" height="1480" alt="image" src="https://github.com/user-attachments/assets/0e16be06-b030-42ec-abd1-5ed1155ca22f" />
 
