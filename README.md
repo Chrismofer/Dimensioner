@@ -7,8 +7,9 @@ A browser-based image measurement tool built with JS + HTML
 
 ## How does it work?
 
-Dimensioner helps you measure real-world dimensions from relatively undistorted images, technical drawings, or straight-on photographs of objects. 
-It is Ideal for drawings/renderings that are orthographic or isometric.
+Dimensioner is for measuring real-world dimensions from images, technical drawings, and photographs.
+
+While ideal for drawings and renders that are orthographic or isometric, it also handles perspective distortion using the grid tool in 2VP mode.
 
 The workflow is simple:
 1. Load an image where at least one dimension is already known
@@ -19,33 +20,33 @@ The workflow is simple:
 <img width="1644" height="1480" alt="image" src="https://github.com/user-attachments/assets/0e16be06-b030-42ec-abd1-5ed1155ca22f" />
 
 
-
 ## Features
 
 - Opens any browser-supported image format (PNG, JPG, WebP, GIF, etc.)
 - Works best with isometric and orthographic drawings, or top/front/side view images of objects
 - Draw and reposition measurement lines over the image
-- Lines display length in pixels; once calibrated, lines show real-world units automatically
-- Multi-select lines and arcs with **Ctrl** or **Alt**. move or delete them as a group
-- press **A** to select everything
+- Lines display length in pixels.
+- Once calibrated, lines show real-world unit lengths.
+- Multi-select lines and arcs using **Ctrl** or **Alt**. move or delete them as a group. press **A** to select ALL
 - Measure angles between any two lines: an arc and angle label can be placed in any angle sector.
 - Selected angle labels can be clicked and dragged to reposition.
 - Angle arcs and labels update live if the referenced lines are moved.
-- Draw a grid between two lines with configurable cross and along cell counts
-- **Affine Spacing** mode: evenly spaces grid lines across the quad
-- **2VP Spacing** mode: perspective-correct harmonic spacing using the two vanishing points derived from the reference lines; the button turns red if the quad is concave (no interior lines are drawn)
+- Draw a grid between two lines with configurable cell counts
+- **Affine Spacing** mode: evenly spaces lines across the grid a la orthographic projection.
+- **2VP Spacing** mode: perspective-correct harmonic spacing using two vanishing points derived from the reference lines; the button turns red if the quad is concave (no interior lines are drawn).
 - Choose line colors and thickness with sidebar controls; changes apply to selected lines instantly.
-- Snap lines to 45° anglesby holding **Shift**
-- hold **Ctrl**/**Alt** while dragging a whole line or group of lines to link lines by endpoints
+- Snap lines to 45° increments by holding **Shift**
+- hold **Ctrl**/**Alt** while drawing or moving a line or group of lines to snap to endpoints.
 - Zoom, pan, and rotate the view
-- Unlimited Undo / Redo
+- Unlimited Undo / Redo history
+  
 - Save output options:
-  - **PNG**: composite image with lines and labels
-  - **PNG**: lines and labels only, on a dark background
-  - **SVG**: vector lines and labels (raster image included)
-  - **SVG**: vector lines and labels (no raster image)
+  - **PNG**: lines and labels over image
+  - **PNG**: lines and labels over dark background
+  - **SVG**: vector lines and labels over raster image
+  - **SVG**: vector lines and labels (no image)
   - **CSV**: spreadsheet of all line coordinates and lengths
-
+(labels will not be included in outputs if they are disabled in the UI)
 
 ## Controls
 
@@ -80,3 +81,14 @@ The workflow is simple:
 | Rotate view | ↺ / ↻ buttons (45° steps) |
 | Reset view | **Reset View** button (resets zoom, rotation, re-centers image) |
 | Save output | **Save Output** button |
+
+
+Dimensioner is free and open source, runs locally and requires no internet connection.
+
+
+## To-do
+
+- CSV export only deals in lines but should include labels, image dimensions, and other information.
+- UI could be more reactive to the currently chosen tool or mode
+- zoom speed slows and stops too early. correct log zoom function
+- grid creation should count as one undo/redo rather than each line being it's own.
